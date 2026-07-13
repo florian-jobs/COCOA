@@ -1,0 +1,29 @@
+[project]
+name = "cocoa-baseline"
+version = "0.1.0"
+# Bounded to <3.12 because pandas is old
+requires-python = ">=3.9,<3.12"
+dependencies = [
+    # grouping by a single-column list used to hand back the key as a plain string, but
+    # every pandas release after 1.5. hands back a 1-item tuple instead, which
+    # breaks the dict lookups inside enrich(). 1.5.3 is the last release with
+    # the old behavior.
+    "pandas==1.5.3",
+    "numpy>=1.23,<2.0",
+    "duckdb>=1.0",
+    "pytest",
+]
+
+[project.scripts]
+cocoa-interface = "interface:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+include = ["interface.py", "run_cocoa.py", "src/**"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

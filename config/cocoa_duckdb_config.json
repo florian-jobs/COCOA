@@ -1,0 +1,16 @@
+{
+  "connection": {
+    "demo": {
+      "database": "db/cocoa.duckdb"
+    },
+    "real": {
+      "database": "db/cocoa_real.duckdb"
+    }
+  },
+  "tables": {
+    "dt": "distinct_tokens",
+    "mt": "main_tokenized",
+    "mc": "max_column",
+    "oi": "order_index"
+  }
+}

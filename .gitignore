@@ -1,0 +1,32 @@
+# Python environment
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE files
+.idea/
+.vscode/
+
+# Local secrets / config
+config/cocoa_config.json
+.env
+
+# Experiment outputs
+results/
+*.sqlite
+*.db
+*.duckdb
+*.csv.tmp
+examples/demo_output.csv
+examples/real_output.csv
+
+# Generated DuckDB databases (built by examples/build_demo_db.py and
+# examples/build_real_index.py - always safe to delete and rebuild)
+db/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Etc.
