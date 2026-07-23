@@ -10,6 +10,7 @@ Then:
         --k-c 5 --k-t 20 --db-config config/cocoa_duckdb_config.json --db-profile real
 """
 import glob
+import argparse
 import json
 import os
 import duckdb
@@ -182,6 +183,12 @@ def main():
     Returns:
         None
     """
+    # Parser for stating table corpora directory.
+    parser = argparse.ArgumentParser(description="Run COCOA indexing.")
+    parser.add_argument("--corpora", required=False,
+                        help="Directory containing the table corpora. Defaults to dataset/.")
+    args = parser.parse_args()
+
     with open("config/cocoa_duckdb_config.json", "r", encoding="utf-8") as f:
         config = json.load(f)
 
@@ -205,9 +212,19 @@ def main():
     main_tokenized_parts = []
     order_index_parts = []
 
-    # tableid = 1-indexed position in this sorted list, so ids stay stable
-    # across runs as long as the file set doesn't change.
-    csv_paths = sorted(glob.glob(os.path.join("dataset", "*.csv")))
+    # Obtain all csv paths. If --corpora is specified, use that, else use dataset/. Possible error source: empty csv's.
+    if args.corpora is not None:
+        # print(f"Using corpora directory {args.corpora}").
+        csv_paths = sorted(os.path.join(root, file)
+                           for root, dirs, files in os.walk(args.corpora)
+                           for file in files if
+                           file.endswith(".csv"))
+    else:
+        csv_paths = sorted(
+            glob.glob(
+                os.path.join("dataset", "*.csv")))
+
+    print(csv_paths)
 
     for tableid, path in enumerate(csv_paths, start=1):
         filename = os.path.basename(path)
