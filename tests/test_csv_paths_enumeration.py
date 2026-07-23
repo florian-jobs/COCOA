@@ -2,6 +2,10 @@ import argparse
 import glob
 import os
 
+# 1. Usage: ls -l ./nyc/ | grep -c ^d
+# 2. uv run python -m tests.test_csv_paths_enumeration.py
+# expected: equal output size.
+
 def main():
     # Parser for stating table corpora directory.
     parser = argparse.ArgumentParser(description="Run COCOA indexing.")
@@ -22,7 +26,8 @@ def main():
             glob.glob(
                 os.path.join("dataset", "*.csv")))
 
-    print(csv_paths, "\n", len(csv_paths))
+    limit = int(args.limit)
+    print(csv_paths[0:limit], "\n", len(csv_paths))
 
 if __name__ == "__main__":
     main()
