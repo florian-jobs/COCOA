@@ -2,7 +2,8 @@ import argparse
 import glob
 import os
 
-# 1. Usage: ls -l ./nyc/ | grep -c ^d
+# Small test for csv path detection in nested corpora directorys.
+# 1. Usage: ls -l ./<corpora_directory>/ | grep -c ^d
 # 2. uv run python -m tests.test_csv_paths_enumeration.py
 # expected: equal output size.
 

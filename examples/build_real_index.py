@@ -187,6 +187,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run COCOA indexing.")
     parser.add_argument("--corpora", required=False,
                         help="Directory containing the table corpora. Defaults to dataset/.")
+    parser.add_argument("--limit", required=False, help="limit the number of csv's to process for testing purposes")
     args = parser.parse_args()
 
     with open("config/cocoa_duckdb_config.json", "r", encoding="utf-8") as f:
@@ -209,8 +210,8 @@ def main():
         f"CREATE TABLE {tables['oi']} (table_col_id TEXT NOT NULL, is_numeric BOOLEAN, min_index INT NOT NULL, order_list TEXT, binary_list TEXT)")
     conn.execute(f"CREATE TABLE {tables['mc']} (tableid INT NOT NULL, max_colid INT NOT NULL, PRIMARY KEY (tableid))")
 
-    main_tokenized_parts = []
-    order_index_parts = []
+    # main_tokenized_parts = []
+    # order_index_parts = []
 
     # Obtain all csv paths. If --corpora is specified, use that, else use dataset/. Possible error source: empty csv's.
     if args.corpora is not None:
@@ -224,30 +225,33 @@ def main():
             glob.glob(
                 os.path.join("dataset", "*.csv")))
 
-    print(csv_paths)
-
     for tableid, path in enumerate(csv_paths, start=1):
         filename = os.path.basename(path)
-        # print(f"[{tableid}] {filename}")
         df = pd.read_csv(path)
-        # print(df.head(3))
-
         long_df = melt_dataframe(df)
-        # print(long_df.head(3))
-        main_tokenized_parts.append(build_main_tokenized(long_df, tableid))
-        # print(build_order_index_rows(long_df, tableid).head(3))
-        order_index_parts.append(build_order_index_rows(df, tableid))
-        # print(build_order_index_rows(long_df, tableid).head(3))
 
-    # Union all parts into one big DF.
-    all_main_tokenized = pd.concat(main_tokenized_parts, ignore_index=True)
-    all_order_index = pd.concat(order_index_parts, ignore_index=True)
+        # main_tokenized_parts.append(build_main_tokenized(long_df, tableid))
+        tmp_tokenized_df = build_main_tokenized(long_df, tableid)
+        conn.register("tmp_tokenized", tmp_tokenized_df)
+        conn.execute(f"INSERT INTO {tables['mt']} SELECT * FROM tmp_tokenized")
 
-    # Fill db tables.
-    conn.register("main_tokenized_df", all_main_tokenized)
-    conn.execute(f"INSERT INTO {tables['mt']} SELECT * FROM main_tokenized_df")
-    conn.register("order_index_df", all_order_index)
-    conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM order_index_df")
+        # order_index_parts.append(build_order_index_rows(df, tableid))
+        tmp_order_index_df = build_order_index_rows(df, tableid)
+        conn.register("tmp_order_index", tmp_order_index_df)
+        conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM tmp_order_index")
+
+        conn.unregister("tmp_tokenized")
+        conn.unregister("tmp_order_index")
+
+    # # Union all parts into one big DF.
+    # all_main_tokenized = pd.concat(main_tokenized_parts, ignore_index=True)
+    # all_order_index = pd.concat(order_index_parts, ignore_index=True)
+    #
+    # # Fill db tables.
+    # conn.register("main_tokenized_df", all_main_tokenized)
+    # conn.execute(f"INSERT INTO {tables['mt']} SELECT * FROM main_tokenized_df")
+    # conn.register("order_index_df", all_order_index)
+    # conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM order_index_df")
     conn.execute(f"INSERT INTO {tables['dt']} SELECT DISTINCT tokenized, table_col_id FROM {tables['mt']}")
 
     # max_colid per table, derived from order_index (one row per column, incl.
