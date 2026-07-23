@@ -22,7 +22,7 @@ def main():
             glob.glob(
                 os.path.join("dataset", "*.csv")))
 
-    print(csv_paths)
+    print(csv_paths, "\n", len(csv_paths))
 
 if __name__ == "__main__":
     main()
