@@ -11,6 +11,8 @@ __pycache__/
 # Local secrets / config
 config/cocoa_config.json
 .env
+dataset/*
+test_run_cocoa_experiment.py
 
 # Experiment outputs
 results/

@@ -127,7 +127,12 @@ def main(argv=None):
         FROM {tables['oi']}
         GROUP BY 1
     """)
+    for t in tables.values():
+        n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        print(f"{t}: {n} rows")
 
+    conn.close()
+    print(f"Real index built at {db_path}")
     conn.close()
 
 if __name__ == "__main__":
