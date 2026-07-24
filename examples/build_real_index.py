@@ -24,7 +24,7 @@ def tokenize_cell(value):
     Tokenizes and processes the input cell value by converting it to a lowercase
     string and cleaning it.
     Tokenizes exactly like enrich() does for query values (str + lower +
-    get_cleaned_text, src/DataAugmentation.py).warum
+    get_cleaned_text, src/DataAugmentation.py).
 
     Args:
         value: The input cell data to be tokenized and processed.
@@ -63,7 +63,7 @@ def _is_numeric_list(values):
 
     This function verifies whether all elements in the given list are numeric values.
     It handles cases where elements are `None` or empty strings by treating them as 'nan',
-    as instructed in the original RERADME.
+    as instructed in the original README.
 
     Args:
         values (list): A list of elements to check for numeric validity.
