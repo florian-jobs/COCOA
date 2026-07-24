@@ -180,7 +180,7 @@ def _build_temporary_index(tmp_path, monkeypatch, sources):
     )
 
     monkeypatch.chdir(tmp_path)
-    build_real_index.main()
+    build_real_index.main(argv=[])
 
     return db_dir / "test_index.duckdb"
 

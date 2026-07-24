@@ -33,7 +33,7 @@ Expected: `apple,5,2.0,10` and `banana,15,1.0,20`.
 
 ```
 uv run python -m examples.build_real_index 
-uv run python run_cocoa.py --input <csv> --output <csv> --query-column <col> --target-column <col> --k-c <N> --k-t <N> --db-config <config.json> --db-profile <demo|real>
+uv run python run_cocoa.py --input <csv path> --output <csv path> --query-column <col> --target-column <col> --k-c <N> --k-t <N> --db-config <config.json path> --db-profile <demo|real>
 ```
 `--k-t`: overlap candidates considered. `--k-c`: top correlating columns joined in.
 

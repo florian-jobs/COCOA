@@ -161,7 +161,7 @@ def build_order_index_rows(df, tableid):
         })
     return pd.DataFrame(rows)
 
-def main():
+def main(argv=None):
     """
     Main function for creating and populating tables in a DuckDB database from a set of CSV files.
 
@@ -187,8 +187,9 @@ def main():
     parser = argparse.ArgumentParser(description="Run COCOA indexing.")
     parser.add_argument("--corpora", required=False,
                         help="Directory containing the table corpora. Defaults to dataset/.")
+    # Yet to be implemented limit functionality to limit the number of processed csv's
     parser.add_argument("--limit", required=False, help="limit the number of csv's to process for testing purposes")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     with open("config/cocoa_duckdb_config.json", "r", encoding="utf-8") as f:
         config = json.load(f)
