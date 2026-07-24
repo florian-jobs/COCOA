@@ -69,16 +69,17 @@ class COCOABaseline:
         #     raise ValueError(f"Target column ({target_column!r}) not numeric")
 
         data = pd.read_csv(self.data_dir_tmp)
-
-        augmented_table = run_cocoa_experiment(
-            data,
-            k_c=self.k_c,
-            k_t=self.k_t,
-            query_column=self.query_column,
-            target_column=self.target_column,
-            db_config=self.db_config,
-            db_profile=self.db_profile,
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            augmented_table = run_cocoa_experiment(
+                data,
+                k_c=self.k_c,
+                k_t=self.k_t,
+                query_column=self.query_column,
+                target_column=self.target_column,
+                db_config=self.db_config,
+                db_profile=self.db_profile,
+            )
 
         return pl.from_pandas(augmented_table.data)
 
@@ -87,7 +88,7 @@ from beluga.config.loader import load_config
 
 config = load_config("config.yaml")
 
-arda = ARDABaseline()
+cocoa = COCOABaseline()
 
-print(arda.run(config))
+print(cocoa.run(config))
 """
