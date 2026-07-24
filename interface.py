@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 import duckdb
@@ -14,15 +14,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent
 _DEFAULT_DB_CONFIG = _PROJECT_ROOT / "config" / "cocoa_duckdb_config.json"
 
 @dataclass
-class ColumnScore:
-    table_col_id: str
-    correlation: float | None
-    is_numeric: bool | None
-
-@dataclass
 class COCOAResult:
     data: pd.DataFrame
-    selected_columns: list[ColumnScore]
     k_c: int
     k_t: int
     query_column: str
@@ -30,16 +23,6 @@ class COCOAResult:
 
     def to_csv(self, path: str) -> None:
         self.data.to_csv(path, index=False)
-
-    def scores_to_json(self, path: str) -> None:
-        payload = {
-            "k_c": self.k_c,
-            "k_t": self.k_t,
-            "query_column": self.query_column,
-            "target_column": self.target_column,
-            "selected_columns": [asdict(c) for c in self.selected_columns],
-        }
-        Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 def _load_db_config(db_config: str | dict) -> dict:
     if isinstance(db_config, dict):
@@ -73,7 +56,6 @@ def run_cocoa_experiment(
 
     try:
         handler = COCOAHandler(conn, tables)
-        original_columns = set(data.columns)
         enriched = handler.enrich(
             data,
             k_c=k_c,
@@ -82,22 +64,8 @@ def run_cocoa_experiment(
             target_column=target_column,
         )
 
-        cocoa_meta = enriched.attrs.get("cocoa")
-        if cocoa_meta is not None:
-            selected_columns = [ColumnScore(**c) for c in cocoa_meta["selected_columns"]]
-        else:
-            new_columns = [
-                c for c in enriched.columns
-                if c not in original_columns and c != "rank_target"
-            ]
-            selected_columns = [
-                ColumnScore(table_col_id=c, correlation=None, is_numeric=None)
-                for c in new_columns
-            ]
-
         return COCOAResult(
             data=enriched,
-            selected_columns=selected_columns,
             k_c=k_c,
             k_t=k_t,
             query_column=query_column,
@@ -131,8 +99,6 @@ def main() -> None:
                         help="Path to a DuckDB config JSON (see config/cocoa_duckdb_config.json).")
     parser.add_argument("--db-profile", required=True, choices=["demo", "real"],
                         help="Which connection to use from --db-config's \"connection\" block.")
-    parser.add_argument("--scores-output", default=None,
-                        help="Optional path to write the selected external columns as JSON.")
 
     args = parser.parse_args()
 
@@ -147,9 +113,7 @@ def main() -> None:
         db_profile=args.db_profile,
     )
 
-    # result.to_csv(args.output)
-    # if args.scores_output:
-    #     result.scores_to_json(args.scores_output)
+    result.to_csv(args.output)
 
 if __name__ == "__main__":
     main()

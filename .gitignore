@@ -17,21 +17,11 @@ results/
 *.sqlite
 *.db
 *.duckdb
-*.csv.tmp
-examples/demo_output.csv
-examples/real_output.csv
 
-# Generated DuckDB databases (built by examples/build_demo_db.py and
-# examples/build_index.py - always safe to delete and rebuild)
+# Generated DuckDB databases (built by src/build_index.py - always safe to
+# delete and rebuild)
 db/
 
 # OS files
 .DS_Store
 Thumbs.db
-
-# Etc.
-tmp/test_csv_path_enumeration.py
-dataset/nested1/nested1.csv
-dataset/nested1/nested1_1/nested1_1.csv
-baseline_arda.py
-baseline_qcr.py

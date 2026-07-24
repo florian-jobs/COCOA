@@ -1,7 +1,7 @@
 # COCOA
 ### COrrelation COefficient-Aware Data Augmentation
 
-Minimal changes to original repository. Dependencies via [uv](https://docs.astral.sh/uv/); backend is [DuckDB](https://duckdb.org/).
+Dependencies via [uv](https://docs.astral.sh/uv/); backend is [DuckDB](https://duckdb.org/). This branch contains only the production/baseline code — tests and demo data live on a separate branch.
 
 ## Setup
 
@@ -9,58 +9,31 @@ Minimal changes to original repository. Dependencies via [uv](https://docs.astra
 uv sync
 ```
 
-⚠️ **pandas is pinned to `1.5.3`** — newer pandas changes `groupby()` behavior in a way that breaks `DataAugmentation.py`. Don't bump it without re-running the tests below.
+Prefix every command with `uv run`.
 
-Prefix every command with `uv run` (e.g. `uv run python run_cocoa.py ...`).
-
-Tests and demo data live on a separate branch — this branch only contains the baseline/production code.
-
-## Real data 
+## Build the index
 
 ```
-uv run python -m src.build_index 
-uv run python run_cocoa.py --input <csv path> --output <csv path> --query-column <col> --target-column <col> --k-c <N> --k-t <N> --db-config <config.json path> --db-profile <demo|real>
+uv run python -m src.build_index --corpora <path to corpus directory>
 ```
-`--k-t`: overlap candidates considered. `--k-c`: top correlating columns joined in.
+Database target (`config/cocoa_duckdb_config.json`, `"real"` profile) is hardcoded, not a flag.
 
-Or call the library directly — see `run_cocoa.py` for the reference usage of `COCOAHandler` (`src/DataAugmentation.py`).
+## Run COCOA
 
-
-## For external experiments
-
-`interface.py` is entry point to call into COCOA: either by shelling out to its CLI or by importing `run_cocoa_experiment()` directly. It wraps `COCOAHandler` from `src/DataAugmentation.py` (unchanged).
-
-CLI (same flags as `run_cocoa.py`, plus `--scores-output`; also installed as `cocoa-interface` after `uv sync`):
 ```
 uv run python interface.py \
     --input <csv path> --output <csv path> \
     --query-column <col> --target-column <col> \
-    --k-c <N> --k-t <N> --db-config config/cocoa_duckdb_config.json --db-profile real \
-    --scores-output <json path>
+    --k-c <N> --k-t <N> --db-config config/cocoa_duckdb_config.json --db-profile real
 ```
+Or programmatically via `from interface import run_cocoa_experiment`.
 
-Python:
+## Beluga baseline
+
 ```python
-from interface import run_cocoa_experiment
+from baseline import COCOABaseline
 
-result = run_cocoa_experiment(
-    data, k_c=1, k_t=1,
-    query_column="query_column", target_column="target_column",
-    db_config="config/cocoa_duckdb_config.json", db_profile="real",
-    # conn=<your own open duckdb.DuckDBPyConnection>,  # optional: manage the connection yourself
-)
-result.data              # enriched pandas DataFrame, same shape as run_cocoa.py's output
-result.selected_columns  # list[ColumnScore]: which external columns were joined in
+cocoa = COCOABaseline(k_c=5, k_t=20)
+result = cocoa.run(config)  # config: beluga.config.schema.Config -> polars.DataFrame
 ```
-
-## Database schema
-
-```sql
-CREATE TABLE main_tokenized  (tokenized TEXT, tableid INT NOT NULL, rowid INT NOT NULL, table_col_id TEXT NOT NULL);
-CREATE TABLE distinct_tokens (tokenized TEXT, table_col_id TEXT NOT NULL);
-CREATE TABLE order_index     (table_col_id TEXT NOT NULL, is_numeric BOOLEAN, min_index INT NOT NULL, order_list TEXT, binary_list TEXT);
-CREATE TABLE max_column      (tableid INT NOT NULL, max_colid INT NOT NULL, PRIMARY KEY (tableid));
-```
-- `main_tokenized`: inverted index, token -> table/col/row.
-- `distinct_tokens`/`max_column`: derived from `main_tokenized`.
-- `order_index`: one row per column, built with `create_index(values)` from `src/DataAugmentation.py`.
+Builds the offline index from `config.data_dir`/`config.corpus` if missing (or if `rebuild_index=True`), enriches `config.queries_dir`/`config.base_table`. DB config/profile are hardcoded, not per-instance.

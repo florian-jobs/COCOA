@@ -20,8 +20,6 @@ class COCOABaseline:
             self,
             k_c: int = 5,
             k_t: int = 20,
-            db_config: str = "config/cocoa_duckdb_config.json",
-            db_profile: str = "real",
             rebuild_index: bool = False,
     ) -> None:
         self.k_c = k_c
