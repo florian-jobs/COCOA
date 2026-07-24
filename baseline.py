@@ -9,7 +9,7 @@ from beluga.config.schema import Config
 from beluga.online.base_table import read_base_table
 from beluga.resources.utils import POLARS_NUMERIC_TYPES
 
-from examples import build_real_index
+import build_index
 from interface import run_cocoa_experiment
 
 class COCOABaseline:
@@ -52,7 +52,7 @@ class COCOABaseline:
             db_path = json.load(f)["connection"][self.db_profile]["database"]
 
         if self.rebuild_index or not os.path.exists(db_path):
-            build_real_index.main(argv=["--corpora", str(corpus_dir)])
+            build_index.main(argv=["--corpora", str(corpus_dir)])
 
         # Online Phase.
         base_table_df = read_base_table(config.base_table, table_dir, config)

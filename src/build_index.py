@@ -2,7 +2,7 @@
 Builds the 4 COCOA index tables from the real CSVs in dataset/ (writes to
 db/cocoa_real.duckdb, separate from the demo DB).
 
-Run with : uv run python -m examples.build_real_index
+Run with : uv run python -m examples.build_index
 
 Then:
     uv run python run_cocoa.py --input dataset/presidential.csv --output <somewhere>/enriched.csv \

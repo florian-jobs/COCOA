@@ -22,7 +22,7 @@ examples/demo_output.csv
 examples/real_output.csv
 
 # Generated DuckDB databases (built by examples/build_demo_db.py and
-# examples/build_real_index.py - always safe to delete and rebuild)
+# examples/build_index.py - always safe to delete and rebuild)
 db/
 
 # OS files
