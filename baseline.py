@@ -9,8 +9,11 @@ from beluga.config.schema import Config
 from beluga.online.base_table import read_base_table
 from beluga.resources.utils import POLARS_NUMERIC_TYPES
 
-import build_index
+from src import build_index
 from interface import run_cocoa_experiment
+
+_DB_CONFIG = "config/cocoa_duckdb_config.json"
+_DB_PROFILE = "real"
 
 class COCOABaseline:
     def __init__(
@@ -23,8 +26,6 @@ class COCOABaseline:
     ) -> None:
         self.k_c = k_c
         self.k_t = k_t
-        self.db_config = db_config
-        self.db_profile = db_profile
         self.rebuild_index = rebuild_index
 
     def run(
@@ -48,8 +49,8 @@ class COCOABaseline:
             corpus_dir = resources.files("beluga.data").joinpath("corpora/toy")
 
         # Offline phase.
-        with open(self.db_config, "r", encoding="utf-8") as f:
-            db_path = json.load(f)["connection"][self.db_profile]["database"]
+        with open(_DB_CONFIG, "r", encoding="utf-8") as f:
+            db_path = json.load(f)["connection"][_DB_PROFILE]["database"]
 
         if self.rebuild_index or not os.path.exists(db_path):
             build_index.main(argv=["--corpora", str(corpus_dir)])
@@ -75,8 +76,8 @@ class COCOABaseline:
                 k_t=self.k_t,
                 query_column=join_column,
                 target_column=target_column,
-                db_config=self.db_config,
-                db_profile=self.db_profile,
+                db_config=_DB_CONFIG,
+                db_profile=_DB_PROFILE,
             )
 
         return pl.from_pandas(augmented_table.data)

@@ -11,23 +11,9 @@ uv sync
 
 ⚠️ **pandas is pinned to `1.5.3`** — newer pandas changes `groupby()` behavior in a way that breaks `DataAugmentation.py`. Don't bump it without re-running the tests below.
 
-Prefix every command with `uv run` (e.g. `uv run pytest`, `uv run python run_cocoa.py ...`).
+Prefix every command with `uv run` (e.g. `uv run python run_cocoa.py ...`).
 
-## Test
-
-```
-uv run pytest -v
-```
-Covers: duckdb/config sanity checks, helper-function smoke tests, the offline index builder, `interface.py`, and a full synthetic-data pipeline run. CI runs this on every push (`.github/workflows/ci.yml`).
-
-## Demo (fake data)
-
-```
-uv run python -m examples.build_demo_db
-uv run python run_cocoa.py --input examples/demo_queries.csv --output examples/demo_output.csv --query-column query_column --target-column target_column --k-c 1 --k-t 1 --db-config config/cocoa_duckdb_config.json --db-profile demo
-cat examples/demo_output.csv
-```
-Expected: `apple,5,2.0,10` and `banana,15,1.0,20`.
+Tests and demo data live on a separate branch — this branch only contains the baseline/production code.
 
 ## Real data 
 
@@ -47,10 +33,10 @@ Or call the library directly — see `run_cocoa.py` for the reference usage of `
 CLI (same flags as `run_cocoa.py`, plus `--scores-output`; also installed as `cocoa-interface` after `uv sync`):
 ```
 uv run python interface.py \
-    --input examples/demo_queries.csv --output examples/demo_output.csv \
-    --query-column query_column --target-column target_column \
-    --k-c 1 --k-t 1 --db-config config/cocoa_duckdb_config.json --db-profile demo \
-    --scores-output examples/demo_scores.json
+    --input <csv path> --output <csv path> \
+    --query-column <col> --target-column <col> \
+    --k-c <N> --k-t <N> --db-config config/cocoa_duckdb_config.json --db-profile real \
+    --scores-output <json path>
 ```
 
 Python:
@@ -60,7 +46,7 @@ from interface import run_cocoa_experiment
 result = run_cocoa_experiment(
     data, k_c=1, k_t=1,
     query_column="query_column", target_column="target_column",
-    db_config="config/cocoa_duckdb_config.json", db_profile="demo",
+    db_config="config/cocoa_duckdb_config.json", db_profile="real",
     # conn=<your own open duckdb.DuckDBPyConnection>,  # optional: manage the connection yourself
 )
 result.data              # enriched pandas DataFrame, same shape as run_cocoa.py's output

@@ -1,23 +1,3 @@
-"""
-CLI usage (same flags as run_cocoa.py, plus --scores-output):
-    uv run python interface.py \
-        --input examples/demo_queries.csv --output examples/demo_output.csv \
-        --query-column query_column --target-column target_column \
-        --k-c 1 --k-t 1 --db-config config/cocoa_duckdb_config.json --db-profile demo \
-        --scores-output examples/demo_scores.json
-
-Python usage:
-    from interface import run_cocoa_experiment
-    result = run_cocoa_experiment(
-        data, k_c=1, k_t=1, query_column="query_column", target_column="target_column",
-        db_config="config/cocoa_duckdb_config.json", db_profile="demo",
-    )
-    result.data            # enriched pandas DataFrame, same shape as run_cocoa.py's output
-    result.selected_columns  # which external columns were joined in, see ColumnScore
-
-NOTE: COCOAHandler.enrich() (src/DataAugmentation.py) does not currently return the
-correlation scores it computes internally for column selection.
-"""
 from __future__ import annotations
 
 import argparse
