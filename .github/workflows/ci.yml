@@ -20,7 +20,7 @@ jobs:
         run: uv run python -m examples.build_demo_db
 
       - name: Build real index
-        run: uv run python -m examples.build_real_index
+        run: uv run python -m src.build_index
 
       - name: Run tests
         run: uv run pytest -v
