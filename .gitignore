@@ -33,3 +33,5 @@ Thumbs.db
 tmp/test_csv_path_enumeration.py
 dataset/nested1/nested1.csv
 dataset/nested1/nested1_1/nested1_1.csv
+baseline_arda.py
+baseline_qcr.py

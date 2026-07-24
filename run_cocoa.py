@@ -79,7 +79,8 @@ def main():
             target_column=args.target_column,
         )
 
-        result.to_csv(args.output, index=False)
+        # result.to_csv(args.output, index=False)
+        # return result
     finally:
         conn.close()
 

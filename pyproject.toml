@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=1.23,<2.0",
     "duckdb>=1.0",
     "pytest",
+    "polars>=1.36.1",
 ]
 
 [project.scripts]

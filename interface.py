@@ -167,9 +167,9 @@ def main() -> None:
         db_profile=args.db_profile,
     )
 
-    result.to_csv(args.output)
-    if args.scores_output:
-        result.scores_to_json(args.scores_output)
+    # result.to_csv(args.output)
+    # if args.scores_output:
+    #     result.scores_to_json(args.scores_output)
 
 if __name__ == "__main__":
     main()
