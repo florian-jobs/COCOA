@@ -1,7 +1,6 @@
 import polars as pl
 import warnings
 import json
-import os
 from importlib import resources
 from pathlib import Path
 
@@ -12,7 +11,8 @@ from beluga.resources.utils import POLARS_NUMERIC_TYPES
 from src import build_index
 from interface import run_cocoa_experiment
 
-_DB_CONFIG = "config/cocoa_duckdb_config.json"
+_PROJECT_ROOT = Path(__file__).resolve().parent
+_DB_CONFIG = _PROJECT_ROOT / "config" / "cocoa_duckdb_config.json"
 _DB_PROFILE = "real"
 
 class COCOABaseline:
@@ -48,9 +48,9 @@ class COCOABaseline:
 
         # Offline phase.
         with open(_DB_CONFIG, "r", encoding="utf-8") as f:
-            db_path = json.load(f)["connection"][_DB_PROFILE]["database"]
+            db_path = _PROJECT_ROOT / json.load(f)["connection"][_DB_PROFILE]["database"]
 
-        if self.rebuild_index or not os.path.exists(db_path):
+        if self.rebuild_index or not db_path.exists():
             build_index.main(argv=["--corpora", str(corpus_dir)])
 
         # Online Phase.

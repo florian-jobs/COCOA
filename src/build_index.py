@@ -1,11 +1,20 @@
-import glob
 import argparse
 import json
 import os
+from pathlib import Path
+
 import duckdb
 import pandas as pd
 
 from src.DataAugmentation import create_index, get_cleaned_text
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0, got {parsed}")
+    return parsed
 
 # Decided not to touch DataAugmentation.py thus redeclared here.
 def tokenize_cell(value):
@@ -61,17 +70,17 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Run COCOA indexing.")
     parser.add_argument("--corpora", required=False,
                         help="Directory containing the table corpora. Defaults to dataset/.")
-    # Yet to be implemented limit functionality to limit the number of processed csv's
-    parser.add_argument("--limit", required=False, help="limit the number of csv's to process for testing purposes")
+    parser.add_argument("--limit", required=False, type=_non_negative_int,
+                        help="limit the number of csv's to process for testing purposes")
     args = parser.parse_args(argv)
 
-    with open("config/cocoa_duckdb_config.json", "r", encoding="utf-8") as f:
+    with open(_PROJECT_ROOT / "config" / "cocoa_duckdb_config.json", "r", encoding="utf-8") as f:
         config = json.load(f)
 
-    db_path = config["connection"]["real"]["database"]
+    db_path = _PROJECT_ROOT / config["connection"]["real"]["database"]
     tables = config["tables"]
 
-    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    os.makedirs(db_path.parent, exist_ok=True)
 
     if os.path.exists(db_path):
         os.remove(db_path)
@@ -86,16 +95,16 @@ def main(argv=None):
     conn.execute(f"CREATE TABLE {tables['mc']} (tableid INT NOT NULL, max_colid INT NOT NULL, PRIMARY KEY (tableid))")
 
     # Obtain all csv paths. If --corpora is specified, use that, else use dataset/. Possible error source: empty csv's.
-    if args.corpora is not None:
-        # print(f"Using corpora directory {args.corpora}").
-        csv_paths = sorted(os.path.join(root, file)
-                           for root, dirs, files in os.walk(args.corpora)
-                           for file in files if
-                           file.endswith(".csv"))
-    else:
-        csv_paths = sorted(
-            glob.glob(
-                os.path.join("dataset", "*.csv")))
+    corpora_dir = args.corpora if args.corpora is not None else _PROJECT_ROOT / "dataset"
+    csv_paths = sorted(os.path.join(root, file)
+                       for root, dirs, files in os.walk(corpora_dir)
+                       for file in files if
+                       file.endswith(".csv"))
+
+    if args.limit is not None:
+        csv_paths = csv_paths[:args.limit]
+
+    print(f"Found {len(csv_paths)} csv's")
 
     for tableid, path in enumerate(csv_paths, start=1):
         filename = os.path.basename(path)

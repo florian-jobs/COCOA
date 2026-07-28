@@ -27,7 +27,9 @@ class COCOAResult:
 def _load_db_config(db_config: str | dict) -> dict:
     if isinstance(db_config, dict):
         return db_config
-    return json.loads(Path(db_config).read_text(encoding="utf-8"))
+    path = Path(db_config)
+    path = path if path.is_absolute() else _PROJECT_ROOT / path
+    return json.loads(path.read_text(encoding="utf-8"))
 
 def _resolve_database_path(database: str) -> str:
     path = Path(database)
