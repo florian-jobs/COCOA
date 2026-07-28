@@ -41,8 +41,10 @@ def melt_dataframe(df):
     return long_df
 
 def build_main_tokenized(long_df, tableid):
-    rows = long_df.dropna(subset=["value"]).copy()
-    rows["tokenized"] = rows["value"].apply(tokenize_cell)
+    # Keep every rowid (even NaN cells as empty tokens) so that rowids stay aligned
+    # with the full-column order_index built by create_index() (see build_order_index_rows).
+    rows = long_df.copy()
+    rows["tokenized"] = rows["value"].fillna("").apply(tokenize_cell)
     rows["tableid"] = tableid
     rows["table_col_id"] = rows["tableid"].astype(str) + "_" + rows["colid"].astype(str)
     return rows[["tokenized", "tableid", "rowid", "table_col_id"]]
