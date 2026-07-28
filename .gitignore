@@ -12,7 +12,6 @@ __pycache__/
 config/cocoa_config.json
 .env
 dataset/*
-test_run_cocoa_experiment.py
 
 # Experiment outputs
 results/
