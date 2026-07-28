@@ -35,8 +35,12 @@ def _is_numeric_list(values):
     return all(_is_numeric('nan' if (v is None or v == '') else str(v)) for v in values)
 
 def melt_dataframe(df):
+    # Melt first and attach rowid via the index afterwards, so a source column
+    # literally named "rowid" can't collide with the rowid column we add.
     col_position = {col: i for i, col in enumerate(df.columns)}
-    long_df = df.reset_index(names="rowid").melt(id_vars="rowid", var_name="colname", value_name="value")
+    long_df = df.melt(var_name="colname", value_name="value", ignore_index=False)
+    long_df.index.name = "rowid"
+    long_df = long_df.reset_index()
     long_df["colid"] = long_df["colname"].map(col_position)
     return long_df
 
@@ -84,19 +88,13 @@ def main(argv=None):
 
     os.makedirs(db_path.parent, exist_ok=True)
 
-    if os.path.exists(db_path):
-        os.remove(db_path)
+    # Build into a temporary file first and only replace the real db once the
+    # build succeeds, so a bad run doesn't destroy a previously working index.
+    tmp_db_path = db_path.with_name(db_path.name + ".tmp")
+    if os.path.exists(tmp_db_path):
+        os.remove(tmp_db_path)
 
-    # Initialize tables and connection to db.
-    conn = duckdb.connect(db_path)
-    conn.execute(
-        f"CREATE TABLE {tables['mt']} (tokenized TEXT, tableid INT NOT NULL, rowid INT NOT NULL, table_col_id TEXT NOT NULL)")
-    conn.execute(f"CREATE TABLE {tables['dt']} (tokenized TEXT, table_col_id TEXT NOT NULL)")
-    conn.execute(
-        f"CREATE TABLE {tables['oi']} (table_col_id TEXT NOT NULL, is_numeric BOOLEAN, min_index INT NOT NULL, order_list TEXT, binary_list TEXT)")
-    conn.execute(f"CREATE TABLE {tables['mc']} (tableid INT NOT NULL, max_colid INT NOT NULL, PRIMARY KEY (tableid))")
-
-    # Obtain all csv paths. If --corpora is specified, use that, else use dataset/. Possible error source: empty csv's.
+    # Obtain all csv paths. If --corpora is specified, use that, else use dataset/.
     corpora_dir = args.corpora if args.corpora is not None else _PROJECT_ROOT / "dataset"
     csv_paths = sorted(os.path.join(root, file)
                        for root, dirs, files in os.walk(corpora_dir)
@@ -108,43 +106,69 @@ def main(argv=None):
 
     print(f"Found {len(csv_paths)} csv's")
 
-    for tableid, path in enumerate(csv_paths, start=1):
-        filename = os.path.basename(path)
-        df = pd.read_csv(path)
-        long_df = melt_dataframe(df)
+    conn = duckdb.connect(tmp_db_path)
+    try:
+        conn.execute(
+            f"CREATE TABLE {tables['mt']} (tokenized TEXT, tableid INT NOT NULL, rowid INT NOT NULL, table_col_id TEXT NOT NULL)")
+        conn.execute(f"CREATE TABLE {tables['dt']} (tokenized TEXT, table_col_id TEXT NOT NULL)")
+        conn.execute(
+            f"CREATE TABLE {tables['oi']} (table_col_id TEXT NOT NULL, is_numeric BOOLEAN, min_index INT NOT NULL, order_list TEXT, binary_list TEXT)")
+        conn.execute(
+            f"CREATE TABLE {tables['mc']} (tableid INT NOT NULL, max_colid INT NOT NULL, PRIMARY KEY (tableid))")
 
-        # main_tokenized_parts.append(build_main_tokenized(long_df, tableid))
-        tmp_tokenized_df = build_main_tokenized(long_df, tableid)
-        conn.register("tmp_tokenized", tmp_tokenized_df)
-        conn.execute(f"INSERT INTO {tables['mt']} SELECT * FROM tmp_tokenized")
+        skipped = []
+        for tableid, path in enumerate(csv_paths, start=1):
+            filename = os.path.basename(path)
+            try:
+                df = pd.read_csv(path)
+                if df.empty:
+                    raise ValueError("no data rows")
+                long_df = melt_dataframe(df)
+                tmp_tokenized_df = build_main_tokenized(long_df, tableid)
+                tmp_order_index_df = build_order_index_rows(df, tableid)
+            except Exception as e:
+                print(f"Skipping {filename}: {e}")
+                skipped.append(filename)
+                continue
 
-        # order_index_parts.append(build_order_index_rows(df, tableid))
-        tmp_order_index_df = build_order_index_rows(df, tableid)
-        conn.register("tmp_order_index", tmp_order_index_df)
-        conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM tmp_order_index")
+            conn.register("tmp_tokenized", tmp_tokenized_df)
+            conn.execute(f"INSERT INTO {tables['mt']} SELECT * FROM tmp_tokenized")
 
-        conn.unregister("tmp_tokenized")
-        conn.unregister("tmp_order_index")
+            conn.register("tmp_order_index", tmp_order_index_df)
+            conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM tmp_order_index")
 
-    conn.execute(f"INSERT INTO {tables['dt']} SELECT DISTINCT tokenized, table_col_id FROM {tables['mt']}")
-    conn.execute(f"""
-        INSERT INTO {tables['mc']}
-        SELECT
-            CAST(
-                split_part(table_col_id, '_', 1) AS INTEGER) AS tableid,
-                MAX(CAST(split_part(table_col_id, '_', 2) AS INTEGER)
-                )
-            AS max_colid
-        FROM {tables['oi']}
-        GROUP BY 1
-    """)
-    for t in tables.values():
-        n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-        print(f"{t}: {n} rows")
+            conn.unregister("tmp_tokenized")
+            conn.unregister("tmp_order_index")
 
-    conn.close()
+        conn.execute(f"INSERT INTO {tables['dt']} SELECT DISTINCT tokenized, table_col_id FROM {tables['mt']}")
+        conn.execute(f"""
+            INSERT INTO {tables['mc']}
+            SELECT
+                CAST(
+                    split_part(table_col_id, '_', 1) AS INTEGER) AS tableid,
+                    MAX(CAST(split_part(table_col_id, '_', 2) AS INTEGER)
+                    )
+                AS max_colid
+            FROM {tables['oi']}
+            GROUP BY 1
+        """)
+        for t in tables.values():
+            n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+            print(f"{t}: {n} rows")
+    except Exception:
+        conn.close()
+        os.remove(tmp_db_path)
+        raise
+    else:
+        conn.close()
+
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    os.replace(tmp_db_path, db_path)
+
+    if skipped:
+        print(f"Skipped {len(skipped)} csv's: {', '.join(skipped)}")
     print(f"Real index built at {db_path}")
-    conn.close()
 
 if __name__ == "__main__":
     main()
