@@ -19,8 +19,8 @@ def main():
 
     result = run_cocoa_experiment(
         data=data,
-        k_c=5,
-        k_t=20,
+        k_c=10,
+        k_t=50,
         query_column=args.query_column,
         target_column=args.target_column,
         db_config="config/cocoa_duckdb_config.json",

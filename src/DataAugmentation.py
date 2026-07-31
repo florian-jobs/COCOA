@@ -132,7 +132,7 @@ class COCOAHandler:
         except KeyError:
             raise ValueError('COCOA: Invalid constructor input for parameter db_tables.')
 
-    def enrich(self, data, k_c, k_t, query_column='query', target_column='target'):
+    def enrich(self, data, k_c, k_t, query_column='query', target_column='target', rank_method='min'):
         """
 
         :param data: Input dataset, contains query and target columns.
@@ -140,8 +140,13 @@ class COCOAHandler:
         :param k_t: Number of overlap columns to compute the
         :param query_column: Name of the query column in the given pandas dataframe
         :param target_column: Name of the target column in the given pandas dataframe
+        :param rank_method: Method to use for numeric columns.
+                            min: Use minimum rank for all equal values.
+                            average: Use average rank for all equal values.
         :return: Given dataframe with joint external data
         """
+        if rank_method not in ('min', 'average'):
+            raise ValueError('Illegal rank_method.')
         def generate_rank(col):
             """
             Returns rank of the given column.
@@ -196,6 +201,7 @@ class COCOAHandler:
                         f'    FROM {self.dt_table} ' \
                         f'    WHERE tokenized IN (\'{joint_distinct_values}\') ' \
                         f'    GROUP BY table_col_id' \
+                        f'    HAVING COUNT(tokenized) > 3' \
                         f') as ol ' \
                         f'ORDER BY number_of_tokens DESC ' \
                         f'LIMIT {k_t};'
@@ -299,38 +305,73 @@ class COCOAHandler:
                 order_index = order_dict[t_c_key]
                 binary_index = binary_dict[t_c_key]
 
-                dataset['new_external_rank'] = math.ceil(input_size / 2)
-                external_rank = dataset['new_external_rank'].values
-
                 # We use the order index to compute the ranks of each column
                 if is_numeric_column:
                     # Spearman correlation coefficient
+                    dataset['new_external_rank'] = input_size / 2.0
+                    external_rank = dataset['new_external_rank'].values
+
                     counter = 1
                     jump_flag = False
                     current_counter_assigned = False
 
-                    equal_values = np.empty(len(order_index), dtype=np.int64)
-                    equal_values_count = 0
+                    if rank_method == 'min':
+                        # min-rank for equal values:
+                        while pointer != -1:
+                            if jump_flag and current_counter_assigned:
+                                counter += 1
+                                jump_flag = False
+                                current_counter_assigned = False
 
-                    # Average-rank for equal values:
-                    while pointer != -1:
-                        if jump_flag and current_counter_assigned:
-                            counter += 1
-                            jump_flag = False
-                            current_counter_assigned = False
+                            input_index = joinMap[pointer]
+                            if input_index != -1:
+                                external_rank[input_index] = counter
+                                current_counter_assigned = True
 
-                        input_index = joinMap[pointer]
-                        if input_index != -1:
-                            external_rank[input_index] = counter
-                            current_counter_assigned = True
+                            # T = value[i] = value[i + 1] in column
+                            if binary_index[pointer] == 'T':
+                                jump_flag = True
 
-                        # T = value[i] = value[i + 1] in column
-                        if binary_index[pointer] == 'T':
-                            if equal_values_count:
+                            pointer = order_index[pointer]
+                    else:
+                        equal_values = np.empty(len(order_index), dtype=np.int64)
+                        equal_values_count = 0
+
+                        # Average-rank for equal values:
+                        while pointer != -1:
+                            if jump_flag and current_counter_assigned:
+                                counter += 1
+                                jump_flag = False
+                                current_counter_assigned = False
+
+                            input_index = joinMap[pointer]
+                            if input_index != -1:
+                                external_rank[input_index] = counter
+                                current_counter_assigned = True
+
+                            # T = value[i] = value[i + 1] in column
+                            if binary_index[pointer] == 'T':
+                                if equal_values_count:
+                                    equal_values[equal_values_count] = pointer
+                                    equal_values_count += 1
+
+                                    # We count all equal values and assign average for each
+                                    rank = 0
+                                    for j in range(0, equal_values_count):
+                                        rank += external_rank[joinMap[equal_values[j]]]
+                                    rank = rank / equal_values_count
+
+                                    for j in range(0, equal_values_count):
+                                        external_rank[joinMap[equal_values[j]]] = rank
+                                    equal_values_count = 0
+                                jump_flag = True
+                            else:
                                 equal_values[equal_values_count] = pointer
                                 equal_values_count += 1
+                                counter += 1
 
-                                # We count all equal values and assign average for each
+                            # In the end, we have to check if the last values were equal and assign the average rank
+                            if equal_values_count:
                                 rank = 0
                                 for j in range(0, equal_values_count):
                                     rank += external_rank[joinMap[equal_values[j]]]
@@ -339,28 +380,14 @@ class COCOAHandler:
                                 for j in range(0, equal_values_count):
                                     external_rank[joinMap[equal_values[j]]] = rank
                                 equal_values_count = 0
-                            jump_flag = True
-                        else:
-                            equal_values[equal_values_count] = pointer
-                            equal_values_count += 1
-                            counter += 1
 
-                        # In the end, we have to check if the last values were equal and assign the average rank
-                        if equal_values_count:
-                            rank = 0
-                            for j in range(0, equal_values_count):
-                                rank += external_rank[joinMap[equal_values[j]]]
-                            rank = rank / equal_values_count
-
-                            for j in range(0, equal_values_count):
-                                external_rank[joinMap[equal_values[j]]] = rank
-                            equal_values_count = 0
-
-                        pointer = order_index[pointer]
+                            pointer = order_index[pointer]
                     cor = np.corrcoef(dataset['rank_target'], external_rank)[0, 1]
 
                 else:
                     # Pearson correlation coefficient
+                    dataset['new_external_rank'] = math.ceil(input_size / 2)
+
                     max_correlation = 0
                     ohe_sum = 0
                     ohe_qty = 0

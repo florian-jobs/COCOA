@@ -18,8 +18,8 @@ _DB_PROFILE = "real"
 class COCOABaseline:
     def __init__(
             self,
-            k_c: int = 5,
-            k_t: int = 20,
+            k_c: int = 10,
+            k_t: int = 50,
             rebuild_index: bool = False,
     ) -> None:
         self.k_c = k_c

@@ -34,6 +34,21 @@ def _is_numeric(s):
 def _is_numeric_list(values):
     return all(_is_numeric('nan' if (v is None or v == '') else str(v)) for v in values)
 
+# Decided not to touch DataAugmentation.py thus redeclared here.
+def _is_numeric_list_with_header(values):
+    # A column is numeric-with-header if all values are numeric except for a
+    # single non-numeric value (e.g. a stray header row baked into the data).
+    found_heading = False
+    for v in values:
+        s = 'nan' if (v is None or v == '') else str(v)
+        if _is_numeric(s):
+            continue
+        if not found_heading:
+            found_heading = True
+        else:
+            return False
+    return True
+
 def melt_dataframe(df):
     # Melt first and attach rowid via the index afterwards, so a source column
     # literally named "rowid" can't collide with the rowid column we add.
@@ -61,7 +76,7 @@ def build_order_index_rows(df, tableid):
     for colid, colname in enumerate(df.columns):
         tokenized_values = df[colname].fillna("").apply(tokenize_cell).tolist()
 
-        is_numeric = _is_numeric_list(tokenized_values)
+        is_numeric = _is_numeric_list(tokenized_values) or _is_numeric_list_with_header(tokenized_values)
 
         min_index, order_list, binary_list = create_index(tokenized_values)
 
