@@ -1,0 +1,2 @@
+1. uv sync
+2. To test with --limit <k> and --corpora <directory> for example run: uv run python test_run_cocoa_experiment.py --corpora ~/data/corpora/open_data/joinable_tables/ --limit 5 --input ~/data/corpora/open_data/joinable_tables/nyc/nyc-finance-39g5-gbp3/table.csv --query_column agency_name --target_column total_current_budget_amount

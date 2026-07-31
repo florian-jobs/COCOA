@@ -54,13 +54,16 @@ def build_main_tokenized(long_df, tableid):
     return rows[["tokenized", "tableid", "rowid", "table_col_id"]]
 
 def build_order_index_rows(df, tableid):
+    # Index the same tokenized text that ends up in main_tokenized (not the raw
+    # cell values), matching the original COCOA pipeline where generate_order_index
+    # reads FROM main_tokenized.tokenized instead of the source CSVs.
     rows = []
     for colid, colname in enumerate(df.columns):
-        column = df[colname]
+        tokenized_values = df[colname].fillna("").apply(tokenize_cell).tolist()
 
-        is_numeric = _is_numeric_list(column.tolist())
+        is_numeric = _is_numeric_list(tokenized_values)
 
-        min_index, order_list, binary_list = create_index(column.tolist())
+        min_index, order_list, binary_list = create_index(tokenized_values)
 
         rows.append({
             "table_col_id": f"{tableid}_{colid}",
