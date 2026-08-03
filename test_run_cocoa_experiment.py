@@ -1,3 +1,10 @@
+"""
+End-to-end smoke test: builds the index over a corpus, then runs COCOA on one
+input table, printing a preview of the result. Exercises both phases
+(src/build_index.py and interface.run_cocoa_experiment) together against a
+real corpus - see README for example invocations.
+"""
+
 import argparse
 
 from interface import run_cocoa_experiment
@@ -19,7 +26,7 @@ def main():
 
     result = run_cocoa_experiment(
         data=data,
-        k_c=10,
+        k_c=10,  # matches COCOABaseline's defaults, see baseline.py
         k_t=50,
         query_column=args.query_column,
         target_column=args.target_column,

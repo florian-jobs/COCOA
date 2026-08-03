@@ -85,6 +85,11 @@ def create_index(values):
             if values[i] is None:
                 values[i] = ''
         values = [str(i) for i in values]
+    # Deliberate deviation from the original (which calls .rank() with defaults,
+    # i.e. na_option='keep'): with NaN ranks kept, the original's two sort steps
+    # disagree on NaN order (Python's sorted() vs. np.sort()), desyncing
+    # rows_sorted_based_on_ranks from sorted_ranks for columns with multiple NaNs.
+    # na_option='bottom' gives NaNs a concrete rank so both sorts agree.
     ranks = list(pd.Series(values).rank(na_option='bottom', method='average'))
 
     rows_sorted_based_on_ranks = [x for _, x in sorted(zip(ranks, rows))]

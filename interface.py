@@ -1,3 +1,10 @@
+"""
+Online-phase entry point: runs COCOA (DataAugmentation.COCOAHandler.enrich)
+against an already-built index (see src/build_index.py for the offline
+phase). Exposes both a Python function, run_cocoa_experiment(), and a CLI
+wrapper around it, for use outside of the beluga baseline (baseline.py).
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -15,6 +22,7 @@ _DEFAULT_DB_CONFIG = _PROJECT_ROOT / "config" / "cocoa_duckdb_config.json"
 
 @dataclass
 class COCOAResult:
+    """Output of run_cocoa_experiment(): the input data with the top k_c correlated external columns joined in."""
     data: pd.DataFrame
     k_c: int
     k_t: int
@@ -25,6 +33,7 @@ class COCOAResult:
         self.data.to_csv(path, index=False)
 
 def _load_db_config(db_config: str | dict) -> dict:
+    """Accepts either an already-loaded config dict or a path to one, and returns the dict either way."""
     if isinstance(db_config, dict):
         return db_config
     path = Path(db_config)
@@ -32,6 +41,7 @@ def _load_db_config(db_config: str | dict) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 def _resolve_database_path(database: str) -> str:
+    """Resolves a db path from the config relative to the project root, unless it's already absolute."""
     path = Path(database)
     return str(path if path.is_absolute() else _PROJECT_ROOT / path)
 
@@ -46,6 +56,20 @@ def run_cocoa_experiment(
         db_profile: str = "demo",
         conn: duckdb.DuckDBPyConnection | None = None,
 ) -> COCOAResult:
+    """
+    Enriches `data` with the top k_c external columns (out of k_t overlap
+    candidates) that best correlate with target_column, matched via
+    query_column against the index described by db_config/db_profile.
+
+    :param data: Input dataframe, must contain query_column and target_column.
+    :param k_c: Number of top-correlating external columns to join in.
+    :param k_t: Number of overlap candidates to consider before ranking.
+    :param query_column: Column in `data` to match against the index.
+    :param target_column: Column in `data` to correlate external columns against.
+    :param db_config: Path to a DuckDB config json, or an already-loaded dict. Defaults to config/cocoa_duckdb_config.json.
+    :param db_profile: Which entry under the config's "connection" block to use.
+    :param conn: Reuse an existing DuckDB connection instead of opening (and later closing) a new one.
+    """
     if k_c < 0 or k_t < 0:
         raise ValueError(f"k_c and k_t must be >= 0, got k_c={k_c}, k_t={k_t}")
 
@@ -78,12 +102,14 @@ def run_cocoa_experiment(
             conn.close()
 
 def _non_negative_int(value: str) -> int:
+    """argparse type= helper: parses value as an int, rejecting negatives."""
     parsed = int(value)
     if parsed < 0:
         raise argparse.ArgumentTypeError(f"must be >= 0, got {parsed}")
     return parsed
 
 def main() -> None:
+    """CLI wrapper: reads --input, runs run_cocoa_experiment(), writes the result to --output."""
     parser = argparse.ArgumentParser(
         description="Run COCOA for an external experiment harness (CLI adapter around run_cocoa_experiment())."
     )

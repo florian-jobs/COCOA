@@ -1,3 +1,10 @@
+"""
+Beluga entry point for the COCOA baseline: wires build_index.py (offline
+index build) and interface.run_cocoa_experiment (online query) together
+behind beluga's Config object, so beluga can run COCOA without knowing
+anything about its internals.
+"""
+
 import polars as pl
 import warnings
 import json
@@ -16,6 +23,17 @@ _DB_CONFIG = _PROJECT_ROOT / "config" / "cocoa_duckdb_config.json"
 _DB_PROFILE = "real"
 
 class COCOABaseline:
+    """
+    Runs the full COCOA pipeline (build index if needed, then augment) for beluga.
+
+    :ivar k_c: Number of top-correlating external columns to join into the result.
+    :type k_c: int
+    :ivar k_t: Number of overlap-candidate columns considered before ranking.
+    :type k_t: int
+    :ivar rebuild_index: Force a full index rebuild even if one already exists on disk.
+    :type rebuild_index: bool
+    """
+
     def __init__(
             self,
             k_c: int = 10,
@@ -30,8 +48,12 @@ class COCOABaseline:
             self,
             config: Config | None = None
     ) -> pl.DataFrame:
+        """Runs the pipeline for one beluga Config and returns the augmented base table."""
         config = Config() if config is None else config
 
+        # NB: target_column_id is only validated here (must be set), not actually
+        # used to pick the column - which column is join/target is determined
+        # positionally below (first/last column of the base table).
         if not config.target_column_id:
             raise ValueError("Value for target_column_id not specified in the configuration file")
 
@@ -46,16 +68,17 @@ class COCOABaseline:
         else:
             corpus_dir = resources.files("beluga.data").joinpath("corpora/toy")
 
-        # Offline phase.
+        # Offline phase: (re)build the DuckDB index if it's missing or a rebuild was requested.
         with open(_DB_CONFIG, "r", encoding="utf-8") as f:
             db_path = _PROJECT_ROOT / json.load(f)["connection"][_DB_PROFILE]["database"]
 
         if self.rebuild_index or not db_path.exists():
             build_index.main(argv=["--corpora", str(corpus_dir)])
 
-        # Online Phase.
+        # Online phase: query the index and join in the best-correlating external columns.
         base_table_df = read_base_table(config.base_table, table_dir, config)
 
+        # Base table convention: join column is always first, target column always last.
         join_column_id = 0
         join_column = base_table_df.columns[join_column_id]
         target_column_id = len(base_table_df.columns) - 1
@@ -80,6 +103,7 @@ class COCOABaseline:
 
         return pl.from_pandas(augmented_table.data)
 
+# Example usage (kept as reference; needs a real config.yaml with target_column_id set):
 """
 from beluga.config.loader import load_config
 
