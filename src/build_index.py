@@ -13,6 +13,7 @@ already-populated main_tokenized table.
 import argparse
 import contextlib
 import json
+import multiprocessing
 import os
 import re
 import threading
@@ -33,6 +34,13 @@ def _non_negative_int(value: str) -> int:
         raise argparse.ArgumentTypeError(f"must be >= 0, got {parsed}")
     return parsed
 
+def _positive_int(value: str) -> int:
+    """argparse type= helper: parses value as an int, rejecting anything < 1."""
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(f"must be >= 1, got {parsed}")
+    return parsed
+
 # tokenize_cell and the _is_numeric* helpers below duplicate private logic that
 # also lives in DataAugmentation.py. Redeclared here (not imported) so that
 # file doesn't need to change to expose them - see also create_index, which
@@ -50,6 +58,7 @@ _LOOKS_NUMERIC_RE = re.compile(
     r'^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*$|^\s*[+-]?inf(inity)?\s*$',
     re.IGNORECASE,
 )
+
 # float() accepts any whitespace/sign around "nan" (e.g. "-nan", " nan "), not
 # just the bare string - matched separately since the main regex above only
 # covers actual numbers/infinities.
@@ -170,6 +179,70 @@ def build_order_index_rows(tokenized_long_df, tableid, num_columns):
         })
     return pd.DataFrame(rows)
 
+def _process_file(tableid_and_path):
+    """
+    Worker function for the --workers>1 pool: does all the CPU-bound,
+    DB-free work for one csv (read/melt/tokenize/build order index) and
+    returns the two small DataFrames ready to insert - no DuckDB connection
+    touched here, so this is safe to run in a separate process. Runs in the
+    main process too when --workers=1, so there's one code path either way.
+    Errors are caught and returned rather than raised, since a pool worker
+    dying would otherwise be awkward to attribute back to the failing file.
+    """
+    tableid, path = tableid_and_path
+    try:
+        # dtype=str skips pandas' per-column type inference (int/float/datetime
+        # sniffing) - we stringify every cell in tokenize_cell anyway, so that
+        # inference work is pure overhead. Bonus: it also avoids inference
+        # artifacts like "005" -> 5 or "3.140" -> 3.14 changing the token text.
+        df = _read_csv_robust(path)
+        if df.empty:
+            raise ValueError("no data rows")
+        long_df = melt_dataframe(df)
+        tokenized_long_df = tokenize_long_df(long_df)
+        tmp_tokenized_df = build_main_tokenized(tokenized_long_df, tableid)
+        tmp_order_index_df = build_order_index_rows(tokenized_long_df, tableid, len(df.columns))
+        # Table name = parent directory of table.csv, matching the table_id
+        # convention used everywhere else in the benchmark (leaky_features.json
+        # keys, arda's node_id) - needed to translate leaky_features (keyed by
+        # name) into our internal integer tableid at query time.
+        table_name = os.path.basename(os.path.dirname(path))
+        return tableid, path, len(df.columns), table_name, tmp_tokenized_df, tmp_order_index_df, None
+    except Exception as e:
+        return tableid, path, None, None, None, None, str(e)
+
+def _commit_file(conn, tables, tableid, num_columns, table_name, tmp_tokenized_df, tmp_order_index_df):
+    """
+    Inserts one already-processed file's rows into mt/dt/oi/mc/tn as a single
+    transaction (see _build's docstring for why dt/mc/tn are derived here per
+    file instead of once at the end). Returns None on success, or an error
+    message on failure (having already rolled back).
+    """
+    registered = []
+    try:
+        conn.execute("BEGIN TRANSACTION")
+        conn.register("tmp_tokenized", tmp_tokenized_df)
+        registered.append("tmp_tokenized")
+        conn.execute(f"INSERT INTO {tables['mt']} SELECT * FROM tmp_tokenized")
+        conn.execute(f"INSERT INTO {tables['dt']} SELECT DISTINCT tokenized, table_col_id FROM tmp_tokenized")
+
+        conn.register("tmp_order_index", tmp_order_index_df)
+        registered.append("tmp_order_index")
+        conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM tmp_order_index")
+        conn.execute(f"INSERT INTO {tables['mc']} VALUES (?, ?)", [tableid, num_columns - 1])
+        conn.execute(f"INSERT INTO {tables['tn']} VALUES (?, ?)", [tableid, table_name])
+        conn.execute("COMMIT")
+        return None
+    except Exception as e:
+        try:
+            conn.execute("ROLLBACK")
+        except duckdb.Error:
+            pass
+        return str(e)
+    finally:
+        for name in registered:
+            conn.unregister(name)
+
 @contextlib.contextmanager
 def _build_lock(lock_path, poll_interval=5.0, stale_after=24 * 3600, heartbeat_interval=60.0):
     """
@@ -243,7 +316,7 @@ def is_build_complete(db_path):
     return db_path.exists() and _completion_marker_path(db_path).exists()
 
 def main(argv=None):
-    """CLI entry point: parses --corpora/--limit, then (re)builds the index under a lock so concurrent builds can't collide."""
+    """CLI entry point: parses --corpora/--limit/--db-path/--workers, then (re)builds the index under a lock so concurrent builds can't collide."""
     parser = argparse.ArgumentParser(description="Run cocoa indexing.")
     parser.add_argument("--corpora", required=False,
                         help="Directory containing the table corpora. Defaults to dataset/.")
@@ -252,6 +325,10 @@ def main(argv=None):
     parser.add_argument("--db-path", required=False,
                         help="Override the db path from cocoa_duckdb_config.json (e.g. to build a "
                              "separate index per corpus - see baseline.py, which relies on this).")
+    parser.add_argument("--workers", required=False, type=_positive_int, default=1,
+                        help="Number of worker processes for the per-csv parse/tokenize/order-index step "
+                             "(the CPU-bound part). DuckDB writes always stay on the main process, since "
+                             "DuckDB only allows one writer. Defaults to 1 (no extra processes).")
     args = parser.parse_args(argv)
 
     with open(_PROJECT_ROOT / "config" / "cocoa_duckdb_config.json", "r", encoding="utf-8") as f:
@@ -283,6 +360,14 @@ def _build(db_path, tables, args):
     created (and partially populated) as soon as the build starts. A
     completion marker file is written only once everything below succeeds;
     see is_build_complete().
+
+    args.workers > 1 parallelizes the CPU-bound per-file work (parse,
+    tokenize, build the order index) across a process pool - DuckDB only
+    supports one writer, so the main process still does every INSERT/COMMIT
+    itself, one file at a time, just fed by the pool instead of a plain
+    loop. Only worth it if that CPU-bound step, not I/O or the inserts, is
+    actually the bottleneck for your corpus - a small --limit timing
+    comparison at --workers=1 vs a higher value will tell you.
     """
     db_path = Path(db_path)
     marker_path = _completion_marker_path(db_path)
@@ -317,59 +402,35 @@ def _build(db_path, tables, args):
             f"CREATE TABLE {tables['tn']} (tableid INT NOT NULL, table_name TEXT NOT NULL, PRIMARY KEY (tableid))")
 
         skipped = []
+        work_items = list(enumerate(csv_paths, start=1))
         with open(skip_log_path, "w", encoding="utf-8") as skip_log:
-            for tableid, path in enumerate(csv_paths, start=1):
+            def _log_skip(filename, err):
+                message = f"Skipping {filename}: {err}"
+                print(message)
+                skip_log.write(message + "\n")
+                skipped.append(filename)
+
+            def _handle_result(tableid, path, num_columns, table_name, tmp_tokenized_df, tmp_order_index_df, err):
                 filename = os.path.basename(path)
-                registered = []
-                try:
-                    # dtype=str skips pandas' per-column type inference (int/float/datetime
-                    # sniffing) - we stringify every cell in tokenize_cell anyway, so that
-                    # inference work is pure overhead. Bonus: it also avoids inference
-                    # artifacts like "005" -> 5 or "3.140" -> 3.14 changing the token text.
-                    df = _read_csv_robust(path)
-                    if df.empty:
-                        raise ValueError("no data rows")
-                    long_df = melt_dataframe(df)
-                    tokenized_long_df = tokenize_long_df(long_df)
-                    tmp_tokenized_df = build_main_tokenized(tokenized_long_df, tableid)
-                    tmp_order_index_df = build_order_index_rows(tokenized_long_df, tableid, len(df.columns))
+                if err is not None:
+                    _log_skip(filename, err)
+                    return
+                commit_err = _commit_file(conn, tables, tableid, num_columns, table_name, tmp_tokenized_df, tmp_order_index_df)
+                if commit_err is not None:
+                    _log_skip(filename, commit_err)
 
-                    # Per-file transaction: a bad insert for one csv must not take down
-                    # the whole build, and must not leave mt/dt/oi/mc out of sync with
-                    # each other - dt/mc are derived per file here (not as one big pass
-                    # after the loop) so that a crash mid-build leaves every already-
-                    # committed file fully queryable, not just present in mt/oi while
-                    # dt/mc (which enrich() queries first) stay empty.
-                    conn.execute("BEGIN TRANSACTION")
-                    conn.register("tmp_tokenized", tmp_tokenized_df)
-                    registered.append("tmp_tokenized")
-                    conn.execute(f"INSERT INTO {tables['mt']} SELECT * FROM tmp_tokenized")
-                    conn.execute(f"INSERT INTO {tables['dt']} SELECT DISTINCT tokenized, table_col_id FROM tmp_tokenized")
-
-                    conn.register("tmp_order_index", tmp_order_index_df)
-                    registered.append("tmp_order_index")
-                    conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM tmp_order_index")
-                    conn.execute(f"INSERT INTO {tables['mc']} VALUES (?, ?)", [tableid, len(df.columns) - 1])
-                    # Table name = parent directory of table.csv, matching the table_id
-                    # convention used everywhere else in the benchmark (leaky_features.json
-                    # keys, arda's node_id) - needed to translate leaky_features (keyed by
-                    # name) into our internal integer tableid at query time.
-                    table_name = os.path.basename(os.path.dirname(path))
-                    conn.execute(f"INSERT INTO {tables['tn']} VALUES (?, ?)", [tableid, table_name])
-                    conn.execute("COMMIT")
-                except Exception as e:
-                    try:
-                        conn.execute("ROLLBACK")
-                    except duckdb.Error:
-                        pass
-                    message = f"Skipping {filename}: {e}"
-                    print(message)
-                    skip_log.write(message + "\n")
-                    skipped.append(filename)
-                    continue
-                finally:
-                    for name in registered:
-                        conn.unregister(name)
+            if args.workers > 1:
+                # imap_unordered: order doesn't matter for correctness, each
+                # result already carries its own tableid (assigned above,
+                # before dispatch) - so files can come back in whatever order
+                # they finish, and still land in the right place.
+                pool_ctx = multiprocessing.get_context()
+                with pool_ctx.Pool(processes=args.workers) as pool:
+                    for result in pool.imap_unordered(_process_file, work_items):
+                        _handle_result(*result)
+            else:
+                for item in work_items:
+                    _handle_result(*_process_file(item))
 
         for t in tables.values():
             n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
