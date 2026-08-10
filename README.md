@@ -34,6 +34,8 @@ Both take `--corpora <dir>` and `--limit <N>` to control how much of a corpus ge
 
 Index builds are locked so two builds against the same db don't race each other, and each csv commits on its own so a crash mid-build can't leave a half-written table. There's no resume though: rerunning after a crash wipes the db and starts over from the first csv. Encoding issues (falls back from utf-8 to latin-1) and malformed rows (skipped, not the whole file) are handled automatically; csv's that still fail to parse are logged to `<db path>.skipped.log` next to the db rather than just scrolling past in the terminal.
 
+Both scripts take `--workers <N>` to parallelize the index build's per-csv work (parse/tokenize/order-index construction) across processes - DuckDB only allows one writer, so the actual inserts stay on the main process either way, only the CPU-bound part before them is parallelized. Defaults to 1 (no extra processes). Worth timing a small `--limit` run at a couple of `--workers` values before committing to one on the full corpus - it only helps if that step, not I/O, is your bottleneck.
+
 ## Beluga baseline
 
 ```python
@@ -57,7 +59,7 @@ The pipeline is two independent phases: build the index once (offline), then que
 
 **Phase 1 — build the index** (`src/build_index.py`): reads a corpus of csv's and writes the DuckDB index (tokenized content + order index) to disk. Only needs to run again if the corpus changes.
 ```
-uv run python -m src.build_index --corpora <corpus dir> [--limit <N>]
+uv run python -m src.build_index --corpora <corpus dir> [--limit <N>] [--workers <N>]
 ```
 
 **Phase 2 — run COCOA** (`src/DataAugmentation.py`, via `interface.py`): reads an existing index and enriches one input table against it. Can be run repeatedly against the same index, e.g. for different query/target columns.

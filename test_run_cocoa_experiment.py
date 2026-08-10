@@ -18,9 +18,12 @@ def main():
     parser.add_argument("--input", required=True, help="CSV file to run the experiment on, e.g. dataset/movie.csv")
     parser.add_argument("--query_column", required=True, help="Query column to run the experiment on")
     parser.add_argument("--target_column", required=True, help="Target column to run the experiment on")
+    parser.add_argument("--workers", required=False, default="1",
+                        help="Worker processes for the index build's per-csv parse/tokenize step (see build_index.py --workers)")
     args = parser.parse_args()
 
-    build_index.main(argv=["--corpora", args.corpora, "--limit", args.limit])
+    build_index.main(
+        argv=["--corpora", args.corpora, "--limit", args.limit, "--workers", args.workers])
 
     data = pd.read_csv(args.input)
 
