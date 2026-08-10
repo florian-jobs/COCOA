@@ -7,6 +7,7 @@ create_order_index / create_index). generate_order_index (Vertica) is out of sco
 """
 
 import argparse
+import time
 import os
 from pathlib import Path
 
@@ -117,6 +118,8 @@ def compare_column(tokenized_values):
 
 def main():
     """CLI entry point: compares every column of every csv under --corpora, prints a summary, and lists any mismatches."""
+    startTime = time.time()
+    print(f'Starting at {startTime}')
     parser = argparse.ArgumentParser("Compare index-building logic: original vs. this adaptation")
     parser.add_argument("--corpora", default="dataset", help="Directory containing csv's to compare")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of csv's to process")
@@ -139,6 +142,9 @@ def main():
             result["file"] = os.path.basename(path)
             result["column"] = colname
             rows.append(result)
+
+    endTime = time.time()
+    print(f'Elapsed: {endTime - startTime:.2f} seconds')
 
     report = pd.DataFrame(rows)
     all_match = report["min_index_match"] & report["order_list_match"] & report["binary_list_match"]
