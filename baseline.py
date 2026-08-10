@@ -72,7 +72,10 @@ class COCOABaseline:
         with open(_DB_CONFIG, "r", encoding="utf-8") as f:
             db_path = _PROJECT_ROOT / json.load(f)["connection"][_DB_PROFILE]["database"]
 
-        if self.rebuild_index or not db_path.exists():
+        # is_build_complete(), not db_path.exists(): db_path is created (and
+        # partially populated) as soon as a build starts, so existence alone
+        # can't tell an in-progress or crashed build apart from a finished one.
+        if self.rebuild_index or not build_index.is_build_complete(db_path):
             build_index.main(argv=["--corpora", str(corpus_dir)])
 
         # Online phase: query the index and join in the best-correlating external columns.

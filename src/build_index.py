@@ -50,10 +50,14 @@ _LOOKS_NUMERIC_RE = re.compile(
     r'^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*$|^\s*[+-]?inf(inity)?\s*$',
     re.IGNORECASE,
 )
+# float() accepts any whitespace/sign around "nan" (e.g. "-nan", " nan "), not
+# just the bare string - matched separately since the main regex above only
+# covers actual numbers/infinities.
+_LOOKS_NAN_RE = re.compile(r'^\s*[+-]?nan\s*$', re.IGNORECASE)
 
 def _is_numeric(s):
-    """True if float(s) would succeed (treats the literal string "nan" as numeric too, matching the original COCOA behaviour)."""
-    if s.lower() == 'nan':
+    """True if float(s) would succeed (treats "nan"-like strings as numeric too, matching the original COCOA behaviour)."""
+    if _LOOKS_NAN_RE.match(s):
         return True
     if not _LOOKS_NUMERIC_RE.match(s):
         return False
@@ -83,6 +87,24 @@ def _is_numeric_list_with_header(values):
         else:
             return False
     return True
+
+_READ_CSV_ENCODINGS = ("utf-8", "latin-1")
+
+def _read_csv_robust(path):
+    """
+    Reads a csv as dtype=str, tolerating the messiness typical of large,
+    heterogeneous corpora: falls back through encodings if utf-8 fails
+    (common on scraped open-data portals - latin-1 never raises, so it's
+    always the last resort), and skips individual malformed rows (wrong
+    field count) instead of dropping the whole file for one bad line.
+    """
+    last_err = None
+    for encoding in _READ_CSV_ENCODINGS:
+        try:
+            return pd.read_csv(path, dtype=str, encoding=encoding, on_bad_lines="skip")
+        except UnicodeDecodeError as e:
+            last_err = e
+    raise last_err
 
 def melt_dataframe(df):
     """
@@ -201,6 +223,25 @@ def _build_lock(lock_path, poll_interval=5.0, stale_after=24 * 3600, heartbeat_i
         with contextlib.suppress(FileNotFoundError):
             os.remove(lock_path)
 
+def _completion_marker_path(db_path):
+    """Sidecar file marking a fully-finished build, next to db_path (same naming pattern as the .lock file)."""
+    return db_path.with_name(db_path.name + ".complete")
+
+def _skip_log_path(db_path):
+    """Sidecar file persisting every skipped csv and why - stdout scrolls away on a long unattended build."""
+    return db_path.with_name(db_path.name + ".skipped.log")
+
+def is_build_complete(db_path):
+    """
+    True if db_path holds a fully-finished build. Callers (e.g. baseline.py)
+    should use this instead of db_path.exists() to decide whether to rebuild -
+    db_path is created (and partially populated) as soon as a build starts,
+    long before it's actually done, so existence alone can't distinguish a
+    finished index from one that's still being written or crashed mid-build.
+    """
+    db_path = Path(db_path)
+    return db_path.exists() and _completion_marker_path(db_path).exists()
+
 def main(argv=None):
     """CLI entry point: parses --corpora/--limit, then (re)builds the index under a lock so concurrent builds can't collide."""
     parser = argparse.ArgumentParser(description="Run COCOA indexing.")
@@ -229,17 +270,25 @@ def _build(db_path, tables, args):
     lock held.
 
     Writes go straight to db_path - no tmp-file-then-swap. Each csv is
-    committed in its own transaction (see the per-file loop below), so a
-    crash mid-build leaves a partial-but-internally-consistent index (some
-    tables missing, none half-written) instead of losing all prior progress.
-    Tradeoff, accepted for now: db_path existing no longer means "build
-    finished successfully" - a crashed build leaves an incomplete-but-present
-    db_path behind. Callers that need a hard "fully built" signal should
-    check for that separately (e.g. a completion marker) rather than relying
-    on existence alone.
+    committed in its own transaction, across all four tables (mt/dt/oi/mc)
+    at once, so a crash mid-build leaves every already-committed file fully
+    and correctly queryable - not just present in some tables. Tradeoff,
+    accepted for now: there's no resume - rerunning wipes db_path and starts
+    over from the first csv rather than skipping already-indexed ones.
+
+    db_path existing does NOT mean the build finished successfully - it's
+    created (and partially populated) as soon as the build starts. A
+    completion marker file is written only once everything below succeeds;
+    see is_build_complete().
     """
-    if os.path.exists(db_path):
+    db_path = Path(db_path)
+    marker_path = _completion_marker_path(db_path)
+    skip_log_path = _skip_log_path(db_path)
+
+    if db_path.exists():
         os.remove(db_path)
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(marker_path)
 
     corpora_dir = args.corpora if args.corpora is not None else _PROJECT_ROOT / "dataset"
     csv_paths = sorted(os.path.join(root, file)
@@ -263,57 +312,54 @@ def _build(db_path, tables, args):
             f"CREATE TABLE {tables['mc']} (tableid INT NOT NULL, max_colid INT NOT NULL, PRIMARY KEY (tableid))")
 
         skipped = []
-        for tableid, path in enumerate(csv_paths, start=1):
-            filename = os.path.basename(path)
-            registered = []
-            try:
-                # dtype=str skips pandas' per-column type inference (int/float/datetime
-                # sniffing) - we stringify every cell in tokenize_cell anyway, so that
-                # inference work is pure overhead. Bonus: it also avoids inference
-                # artifacts like "005" -> 5 or "3.140" -> 3.14 changing the token text.
-                df = pd.read_csv(path, dtype=str)
-                if df.empty:
-                    raise ValueError("no data rows")
-                long_df = melt_dataframe(df)
-                tokenized_long_df = tokenize_long_df(long_df)
-                tmp_tokenized_df = build_main_tokenized(tokenized_long_df, tableid)
-                tmp_order_index_df = build_order_index_rows(tokenized_long_df, tableid, len(df.columns))
-
-                # Per-file transaction: a bad insert for one csv must not take down
-                # the whole build, and must not leave mt/oi out of sync with each other.
-                conn.execute("BEGIN TRANSACTION")
-                conn.register("tmp_tokenized", tmp_tokenized_df)
-                registered.append("tmp_tokenized")
-                conn.execute(f"INSERT INTO {tables['mt']} SELECT * FROM tmp_tokenized")
-
-                conn.register("tmp_order_index", tmp_order_index_df)
-                registered.append("tmp_order_index")
-                conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM tmp_order_index")
-                conn.execute("COMMIT")
-            except Exception as e:
+        with open(skip_log_path, "w", encoding="utf-8") as skip_log:
+            for tableid, path in enumerate(csv_paths, start=1):
+                filename = os.path.basename(path)
+                registered = []
                 try:
-                    conn.execute("ROLLBACK")
-                except duckdb.Error:
-                    pass
-                print(f"Skipping {filename}: {e}")
-                skipped.append(filename)
-                continue
-            finally:
-                for name in registered:
-                    conn.unregister(name)
+                    # dtype=str skips pandas' per-column type inference (int/float/datetime
+                    # sniffing) - we stringify every cell in tokenize_cell anyway, so that
+                    # inference work is pure overhead. Bonus: it also avoids inference
+                    # artifacts like "005" -> 5 or "3.140" -> 3.14 changing the token text.
+                    df = _read_csv_robust(path)
+                    if df.empty:
+                        raise ValueError("no data rows")
+                    long_df = melt_dataframe(df)
+                    tokenized_long_df = tokenize_long_df(long_df)
+                    tmp_tokenized_df = build_main_tokenized(tokenized_long_df, tableid)
+                    tmp_order_index_df = build_order_index_rows(tokenized_long_df, tableid, len(df.columns))
 
-        conn.execute(f"INSERT INTO {tables['dt']} SELECT DISTINCT tokenized, table_col_id FROM {tables['mt']}")
-        conn.execute(f"""
-            INSERT INTO {tables['mc']}
-            SELECT
-                CAST(
-                    split_part(table_col_id, '_', 1) AS INTEGER) AS tableid,
-                    MAX(CAST(split_part(table_col_id, '_', 2) AS INTEGER)
-                    )
-                AS max_colid
-            FROM {tables['oi']}
-            GROUP BY 1
-        """)
+                    # Per-file transaction: a bad insert for one csv must not take down
+                    # the whole build, and must not leave mt/dt/oi/mc out of sync with
+                    # each other - dt/mc are derived per file here (not as one big pass
+                    # after the loop) so that a crash mid-build leaves every already-
+                    # committed file fully queryable, not just present in mt/oi while
+                    # dt/mc (which enrich() queries first) stay empty.
+                    conn.execute("BEGIN TRANSACTION")
+                    conn.register("tmp_tokenized", tmp_tokenized_df)
+                    registered.append("tmp_tokenized")
+                    conn.execute(f"INSERT INTO {tables['mt']} SELECT * FROM tmp_tokenized")
+                    conn.execute(f"INSERT INTO {tables['dt']} SELECT DISTINCT tokenized, table_col_id FROM tmp_tokenized")
+
+                    conn.register("tmp_order_index", tmp_order_index_df)
+                    registered.append("tmp_order_index")
+                    conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM tmp_order_index")
+                    conn.execute(f"INSERT INTO {tables['mc']} VALUES (?, ?)", [tableid, len(df.columns) - 1])
+                    conn.execute("COMMIT")
+                except Exception as e:
+                    try:
+                        conn.execute("ROLLBACK")
+                    except duckdb.Error:
+                        pass
+                    message = f"Skipping {filename}: {e}"
+                    print(message)
+                    skip_log.write(message + "\n")
+                    skipped.append(filename)
+                    continue
+                finally:
+                    for name in registered:
+                        conn.unregister(name)
+
         for t in tables.values():
             n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
             print(f"{t}: {n} rows")
@@ -321,7 +367,9 @@ def _build(db_path, tables, args):
         conn.close()
 
     if skipped:
-        print(f"Skipped {len(skipped)} csv's: {', '.join(skipped)}")
+        print(f"Skipped {len(skipped)} csv's (see {skip_log_path}): {', '.join(skipped)}")
+
+    marker_path.touch()
     print(f"Real index built at {db_path}")
 
 if __name__ == "__main__":

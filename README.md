@@ -32,7 +32,7 @@ uv run python test_compare_index.py --corpora ~/data/corpora/open_data/joinable_
 
 Both take `--corpora <dir>` and `--limit <N>` to control how much of a corpus gets used, so start small (`--limit 5`) before pointing them at the full `open_data`/`web_tables` corpora.
 
-Index builds are safe to run unattended on a large corpus: runs are locked so two builds against the same db don't race each other, each csv commits on its own, and a killed/crashed build leaves whatever was already indexed in place instead of wiping it — just rerun to pick back up.
+Index builds are locked so two builds against the same db don't race each other, and each csv commits on its own so a crash mid-build can't leave a half-written table. There's no resume though: rerunning after a crash wipes the db and starts over from the first csv. Encoding issues (falls back from utf-8 to latin-1) and malformed rows (skipped, not the whole file) are handled automatically; csv's that still fail to parse are logged to `<db path>.skipped.log` next to the db rather than just scrolling past in the terminal.
 
 ## Beluga baseline
 
