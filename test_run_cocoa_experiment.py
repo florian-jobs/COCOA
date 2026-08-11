@@ -7,6 +7,7 @@ real corpus - see README for example invocations.
 
 import argparse
 import time
+import warnings
 
 from interface import run_cocoa_experiment
 from src import build_index
@@ -29,16 +30,19 @@ def main():
 
     data = pd.read_csv(args.input)
 
-    result = run_cocoa_experiment(
-        data=data,
-        k_c=10,  # matches COCOABaseline's defaults, see baseline.py
-        k_t=50,
-        query_column=args.query_column,
-        target_column=args.target_column,
-        db_config="config/cocoa_duckdb_config.json",
-        db_profile="real",
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = run_cocoa_experiment(
+            data=data,
+            k_c=10,  # matches COCOABaseline's defaults, see baseline.py
+            k_t=50,
+            query_column=args.query_column,
+            target_column=args.target_column,
+            db_config="config/cocoa_duckdb_config.json",
+            db_profile="real",
+        )
     endTime = time.time()
+
     print(f"Time taken: {endTime - startTime} seconds")
     print(result.data.head())
 
