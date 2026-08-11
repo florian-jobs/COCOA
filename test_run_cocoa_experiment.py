@@ -6,6 +6,7 @@ real corpus - see README for example invocations.
 """
 
 import argparse
+import time
 
 from interface import run_cocoa_experiment
 from src import build_index
@@ -20,6 +21,7 @@ def main():
     parser.add_argument("--target_column", required=True, help="Target column to run the experiment on")
     args = parser.parse_args()
 
+    startTime = time.time()
     build_index.main(argv=["--corpora", args.corpora, "--limit", args.limit])
 
     data = pd.read_csv(args.input)
@@ -33,7 +35,8 @@ def main():
         db_config="config/cocoa_duckdb_config.json",
         db_profile="real",
     )
-
+    endTime = time.time()
+    print(f"Time taken: {endTime - startTime} seconds")
     print(result.data.head())
 
 if __name__ == '__main__':
