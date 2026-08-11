@@ -22,7 +22,10 @@ def main():
     args = parser.parse_args()
 
     startTime = time.time()
-    build_index.main(argv=["--corpora", args.corpora, "--limit", args.limit])
+    build_argv = ["--corpora", args.corpora]
+    if args.limit is not None:
+        build_argv += ["--limit", args.limit]
+    build_index.main(argv=build_argv)
 
     data = pd.read_csv(args.input)
 
