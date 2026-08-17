@@ -65,7 +65,7 @@ def main():
     endTime = time.time()
 
     print(f"Time taken: {endTime - startTime} seconds")
-    print("result dataframe head" + "\n", result.data.head(20))
+    print("result dataframe head:" + "\n", result.data.head(20))
     print("result dataframe tail: " + "\n", result.data.tail(20))
     print("result dataframe columns:" + "\n", result.data.columns)
 
