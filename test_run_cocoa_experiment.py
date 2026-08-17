@@ -29,7 +29,9 @@ def main():
     build_index.main(argv=build_argv)
 
     data = pd.read_csv(args.input)
-    data.head(20)
+    print("original dataframe head: " + "\n", data.head(20))
+    print("original dataframe tail: " + "\n", data.tail(20))
+    print("original dataframe columns: " + "\n", data.columns)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -45,9 +47,9 @@ def main():
     endTime = time.time()
 
     print(f"Time taken: {endTime - startTime} seconds")
-    print(result.data.head(20))
-    print(result.data.tail(20))
-    print(result.data.columns)
+    print("result dataframe head" + "\n", result.data.head(20))
+    print("result dataframe tail: " + "\n", result.data.tail(20))
+    print("result dataframe columns:" + "\n", result.data.columns)
 
 if __name__ == '__main__':
     main()
