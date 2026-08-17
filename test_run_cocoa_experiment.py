@@ -44,7 +44,9 @@ def main():
     endTime = time.time()
 
     print(f"Time taken: {endTime - startTime} seconds")
-    print(result.data.head())
+    print(result.data.head(20))
+    print(result.data.tail(20))
+    print(result.data.columns)
 
 if __name__ == '__main__':
     main()
