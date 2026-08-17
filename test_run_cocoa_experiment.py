@@ -29,6 +29,7 @@ def main():
     build_index.main(argv=build_argv)
 
     data = pd.read_csv(args.input)
+    data.head(20)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
