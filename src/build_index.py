@@ -1,10 +1,10 @@
 """
-Builds the offline COCOA index (tokenized cell text + order index) from a
+Builds the offline cocoa index (tokenized cell text + order index) from a
 directory of csv's into a local DuckDB file.
 
 This is the "offline phase" of the pipeline: DataAugmentation.py's
 COCOAHandler.enrich() is the "online" query phase that reads the index this
-module produces. Mirrors the original COCOA index_generation.py pipeline
+module produces. Mirrors the original cocoa index_generation.py pipeline
 (tokenize -> order index -> is_numeric), but targets DuckDB instead of
 Vertica and builds directly from source csv's instead of an
 already-populated main_tokenized table.
@@ -56,7 +56,7 @@ _LOOKS_NUMERIC_RE = re.compile(
 _LOOKS_NAN_RE = re.compile(r'^\s*[+-]?nan\s*$', re.IGNORECASE)
 
 def _is_numeric(s):
-    """True if float(s) would succeed (treats "nan"-like strings as numeric too, matching the original COCOA behaviour)."""
+    """True if float(s) would succeed (treats "nan"-like strings as numeric too, matching the original cocoa behaviour)."""
     if _LOOKS_NAN_RE.match(s):
         return True
     if not _LOOKS_NUMERIC_RE.match(s):
@@ -145,7 +145,7 @@ def build_order_index_rows(tokenized_long_df, tableid, num_columns):
     Builds one order_index row per column of the table: is_numeric plus the
     (min_index, order_list, binary_list) triple from create_index(), computed
     over each column's tokenized values (not the raw cell values) - matching
-    the original COCOA pipeline, where index generation reads from
+    the original cocoa pipeline, where index generation reads from
     main_tokenized.tokenized rather than the source csv's.
     """
     by_col = {
@@ -244,7 +244,7 @@ def is_build_complete(db_path):
 
 def main(argv=None):
     """CLI entry point: parses --corpora/--limit, then (re)builds the index under a lock so concurrent builds can't collide."""
-    parser = argparse.ArgumentParser(description="Run COCOA indexing.")
+    parser = argparse.ArgumentParser(description="Run cocoa indexing.")
     parser.add_argument("--corpora", required=False,
                         help="Directory containing the table corpora. Defaults to dataset/.")
     parser.add_argument("--limit", required=False, type=_non_negative_int,
@@ -310,6 +310,8 @@ def _build(db_path, tables, args):
             f"CREATE TABLE {tables['oi']} (table_col_id TEXT NOT NULL, is_numeric BOOLEAN, min_index INT NOT NULL, order_list TEXT, binary_list TEXT)")
         conn.execute(
             f"CREATE TABLE {tables['mc']} (tableid INT NOT NULL, max_colid INT NOT NULL, PRIMARY KEY (tableid))")
+        conn.execute(
+            f"CREATE TABLE {tables['tn']} (tableid INT NOT NULL, table_name TEXT NOT NULL, PRIMARY KEY (tableid))")
 
         skipped = []
         with open(skip_log_path, "w", encoding="utf-8") as skip_log:
@@ -345,6 +347,12 @@ def _build(db_path, tables, args):
                     registered.append("tmp_order_index")
                     conn.execute(f"INSERT INTO {tables['oi']} SELECT * FROM tmp_order_index")
                     conn.execute(f"INSERT INTO {tables['mc']} VALUES (?, ?)", [tableid, len(df.columns) - 1])
+                    # Table name = parent directory of table.csv, matching the table_id
+                    # convention used everywhere else in the benchmark (leaky_features.json
+                    # keys, arda's node_id) - needed to translate leaky_features (keyed by
+                    # name) into our internal integer tableid at query time.
+                    table_name = os.path.basename(os.path.dirname(path))
+                    conn.execute(f"INSERT INTO {tables['tn']} VALUES (?, ?)", [tableid, table_name])
                     conn.execute("COMMIT")
                 except Exception as e:
                     try:

@@ -1,5 +1,5 @@
 """
-Online-phase entry point: runs COCOA (DataAugmentation.COCOAHandler.enrich)
+Online-phase entry point: runs cocoa (DataAugmentation.COCOAHandler.enrich)
 against an already-built index (see src/build_index.py for the offline
 phase). Exposes both a Python function, run_cocoa_experiment(), and a CLI
 wrapper around it, for use outside of the beluga baseline (baseline.py).
@@ -55,6 +55,7 @@ def run_cocoa_experiment(
         db_config: str | dict | None = None,
         db_profile: str = "demo",
         conn: duckdb.DuckDBPyConnection | None = None,
+        leaky_features: dict[str, list[int]] | None = None,
 ) -> COCOAResult:
     """
     Enriches `data` with the top k_c external columns (out of k_t overlap
@@ -69,6 +70,8 @@ def run_cocoa_experiment(
     :param db_config: Path to a DuckDB config json, or an already-loaded dict. Defaults to config/cocoa_duckdb_config.json.
     :param db_profile: Which entry under the config's "connection" block to use.
     :param conn: Reuse an existing DuckDB connection instead of opening (and later closing) a new one.
+    :param leaky_features: Optional dict mapping candidate table name -> list of leaky column ids to
+        exclude from ranking (same format as arda/qcr's leaky_features.json).
     """
     if k_c < 0 or k_t < 0:
         raise ValueError(f"k_c and k_t must be >= 0, got k_c={k_c}, k_t={k_t}")
@@ -88,6 +91,7 @@ def run_cocoa_experiment(
             k_t=k_t,
             query_column=query_column,
             target_column=target_column,
+            leaky_features=leaky_features,
         )
 
         return COCOAResult(
@@ -111,7 +115,7 @@ def _non_negative_int(value: str) -> int:
 def main() -> None:
     """CLI wrapper: reads --input, runs run_cocoa_experiment(), writes the result to --output."""
     parser = argparse.ArgumentParser(
-        description="Run COCOA for an external experiment harness (CLI adapter around run_cocoa_experiment())."
+        description="Run cocoa for an external experiment harness (CLI adapter around run_cocoa_experiment())."
     )
     parser.add_argument("--input", required=True, help="CSV file containing the dataset to augment.")
     parser.add_argument("--output", required=True, help="Path to write the enriched CSV.")
@@ -127,8 +131,14 @@ def main() -> None:
                         help="Path to a DuckDB config JSON (see config/cocoa_duckdb_config.json).")
     parser.add_argument("--db-profile", required=True, choices=["demo", "real"],
                         help="Which connection to use from --db-config's \"connection\" block.")
+    parser.add_argument("--leaky-features", required=False,
+                        help="Path to a leaky_features.json (table name -> list of leaky column ids) to exclude from ranking.")
 
     args = parser.parse_args()
+
+    leaky_features = None
+    if args.leaky_features:
+        leaky_features = json.loads(Path(args.leaky_features).read_text(encoding="utf-8"))
 
     data = pd.read_csv(args.input)
     result = run_cocoa_experiment(
@@ -139,6 +149,7 @@ def main() -> None:
         target_column=args.target_column,
         db_config=args.db_config,
         db_profile=args.db_profile,
+        leaky_features=leaky_features,
     )
 
     result.to_csv(args.output)

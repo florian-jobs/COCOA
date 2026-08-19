@@ -33,7 +33,7 @@ def get_cleaned_text(text):
 
 def create_index(values):
     """
-    Creates order index for given column/list of values as presented in the COCOA paper.
+    Creates order index for given column/list of values as presented in the cocoa paper.
     Index consists of:
     - min_index: Index of minimum in order_list and binary_list
     - order_list: List of indexes from which the ranks can be constructed in linear time.
@@ -119,11 +119,11 @@ def create_index(values):
 class COCOAHandler:
     def __init__(self, conn, db_tables):
         """
-        Creates a COCOA instance to enrich given datasets with external data.
+        Creates a cocoa instance to enrich given datasets with external data.
 
         :param conn: Database connection, e.g. Vertica, Postgres, ...
         :param db_tables: DB table names. Format: { dt: <table_name>, mt: <table_name>, oi: <table_name>,
-                                                    mc: <table_name> }
+                                                    mc: <table_name>, tn: <table_name> }
         """
         self.conn = conn
         self.logging = logging
@@ -134,10 +134,11 @@ class COCOAHandler:
             self.mt_table = db_tables['mt']
             self.oi_table = db_tables['oi']
             self.mc_table = db_tables['mc']
+            self.tn_table = db_tables['tn']
         except KeyError:
-            raise ValueError('COCOA: Invalid constructor input for parameter db_tables.')
+            raise ValueError('cocoa: Invalid constructor input for parameter db_tables.')
 
-    def enrich(self, data, k_c, k_t, query_column='query', target_column='target', rank_method='min'):
+    def enrich(self, data, k_c, k_t, query_column='query', target_column='target', rank_method='min', leaky_features=None):
         """
 
         :param data: Input dataset, contains query and target columns.
@@ -148,6 +149,10 @@ class COCOAHandler:
         :param rank_method: Method to use for numeric columns.
                             min: Use minimum rank for all equal values.
                             average: Use average rank for all equal values.
+        :param leaky_features: Optional dict mapping candidate table name -> list of leaky column ids
+                                in that table (same format as arda/qcr's leaky_features.json). Those
+                                columns are excluded from correlation ranking, not just dropped after
+                                the fact, so they can't consume a slot in the top k_c result either.
         :return: Given dataframe with joint external data
         """
         if rank_method not in ('min', 'average'):
@@ -182,7 +187,7 @@ class COCOAHandler:
 
             return join_table
 
-        logging.info('=== Starting COCOA ===')
+        logging.info('=== Starting cocoa ===')
 
         # Query preparation
         dataset = data.copy()
@@ -216,7 +221,7 @@ class COCOAHandler:
 
         if not overlap_columns:
             logging.info('No joinable columns found.')
-            logging.info('=== Finished COCOA ===')
+            logging.info('=== Finished cocoa ===')
             return dataset     # no external content added
 
         # Extract table and column ids from each
@@ -226,6 +231,20 @@ class COCOAHandler:
             table_ids.append(int(o.split('_')[0]))
             column_ids.append(int(o.split('_')[1]))
         joint_overlap_columns = '\',\''.join(overlap_columns)
+
+        # Resolve which (tableid, column) pairs are leaky, via the table_name each
+        # tableid was assigned at build time - leaky_features is keyed by table name
+        # (matching leaky_features.json / arda's node_id), not by our internal tableid.
+        leaky_by_tableid = {}
+        if leaky_features:
+            joint_leaky_table_ids = '\',\''.join(str(i) for i in set(table_ids))
+            name_query = f'SELECT tableid, table_name ' \
+                         f'FROM {self.tn_table} ' \
+                         f'WHERE tableid IN (\'{joint_leaky_table_ids}\');'
+            for _, row in pd.read_sql(name_query, self.conn).iterrows():
+                leaky_columns = leaky_features.get(row['table_name'])
+                if leaky_columns:
+                    leaky_by_tableid[int(row['tableid'])] = set(leaky_columns)
 
         logging.info('Fetching content of joinable columns...')
 
@@ -300,6 +319,8 @@ class COCOAHandler:
 
             for c in np.arange(max_col + 1):
                 if c == column:
+                    continue
+                if c in leaky_by_tableid.get(table, ()):
                     continue
 
                 t_c_key = f'{table}_{c}'

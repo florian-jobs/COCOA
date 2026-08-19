@@ -11,6 +11,7 @@
     "dt": "distinct_tokens",
     "mt": "main_tokenized",
     "mc": "max_column",
-    "oi": "order_index"
+    "oi": "order_index",
+    "tn": "table_names"
   }
 }

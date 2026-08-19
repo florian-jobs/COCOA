@@ -1,7 +1,7 @@
 """
-Beluga entry point for the COCOA baseline: wires build_index.py (offline
+Beluga entry point for the cocoa baseline: wires build_index.py (offline
 index build) and interface.run_cocoa_experiment (online query) together
-behind beluga's Config object, so beluga can run COCOA without knowing
+behind beluga's Config object, so beluga can run cocoa without knowing
 anything about its internals.
 """
 
@@ -24,7 +24,7 @@ _DB_PROFILE = "real"
 
 class COCOABaseline:
     """
-    Runs the full COCOA pipeline (build index if needed, then augment) for beluga.
+    Runs the full cocoa pipeline (build index if needed, then augment) for beluga.
 
     :ivar k_c: Number of top-correlating external columns to join into the result.
     :type k_c: int
@@ -51,11 +51,13 @@ class COCOABaseline:
         """Runs the pipeline for one beluga Config and returns the augmented base table."""
         config = Config() if config is None else config
 
-        # NB: target_column_id is only validated here (must be set), not actually
-        # used to pick the column - which column is join/target is determined
-        # positionally below (first/last column of the base table).
         if not config.target_column_id:
             raise ValueError("Value for target_column_id not specified in the configuration file")
+
+        if config.data_dir is not None:
+            corpus_dir = Path(config.data_dir) / config.corpus
+        else:
+            corpus_dir = resources.files("beluga.data").joinpath("corpora/toy")
 
         if config.queries_dir is not None:
             table_dir = Path(config.queries_dir) / config.base_table
@@ -63,20 +65,12 @@ class COCOABaseline:
             table_dir = resources.files("beluga.data").joinpath(
                 "queries/beers")  # to update with a new default base table
 
-        if config.data_dir is not None:
-            corpus_dir = Path(config.data_dir) / config.corpus
+        leaky_features_path = table_dir / "leaky_features.json"
+        if leaky_features_path.exists():
+            with open(leaky_features_path, "r", encoding="utf-8", errors="replace") as file:
+                leaky_features = json.load(file)
         else:
-            corpus_dir = resources.files("beluga.data").joinpath("corpora/toy")
-
-        # Offline phase: (re)build the DuckDB index if it's missing or a rebuild was requested.
-        with open(_DB_CONFIG, "r", encoding="utf-8") as f:
-            db_path = _PROJECT_ROOT / json.load(f)["connection"][_DB_PROFILE]["database"]
-
-        # is_build_complete(), not db_path.exists(): db_path is created (and
-        # partially populated) as soon as a build starts, so existence alone
-        # can't tell an in-progress or crashed build apart from a finished one.
-        if self.rebuild_index or not build_index.is_build_complete(db_path):
-            build_index.main(argv=["--corpora", str(corpus_dir)])
+            leaky_features = dict()
 
         # Online phase: query the index and join in the best-correlating external columns.
         base_table_df = read_base_table(config.base_table, table_dir, config)
@@ -90,6 +84,17 @@ class COCOABaseline:
         if base_table_df.schema[target_column] not in POLARS_NUMERIC_TYPES:
             raise ValueError(f"Target column ({target_column!r}) not numeric")
 
+
+        # Offline phase: (re)build the DuckDB index if it's missing or a rebuild was requested.
+        with open(_DB_CONFIG, "r", encoding="utf-8") as f:
+            db_path = _PROJECT_ROOT / json.load(f)["connection"][_DB_PROFILE]["database"]
+
+        # is_build_complete(), not db_path.exists(): db_path is created (and
+        # partially populated) as soon as a build starts, so existence alone
+        # can't tell an in-progress or crashed build apart from a finished one.
+        if self.rebuild_index or not build_index.is_build_complete(db_path):
+            build_index.main(argv=["--corpora", str(corpus_dir)])
+
         data = base_table_df.to_pandas()
 
         with warnings.catch_warnings():
@@ -102,6 +107,7 @@ class COCOABaseline:
                 target_column=target_column,
                 db_config=_DB_CONFIG,
                 db_profile=_DB_PROFILE,
+                leaky_features=leaky_features,
             )
 
         return pl.from_pandas(augmented_table.data)
