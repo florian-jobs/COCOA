@@ -256,7 +256,11 @@ class COCOAHandler:
         external_joinable_tables = pd.read_sql(token_query, self.conn)
         joinable_tables_dict = {}   # store content of tables containing at least one column that is joinable with query
 
-        for name, group in external_joinable_tables.groupby(['table_col_id']):
+        # Group by the column name itself, not [column name]: in pandas >= 2.0,
+        # grouping by a length-1 list-like yields tuple keys (e.g. ('2_0',))
+        # instead of scalar keys, which desyncs this dict's keys from the plain
+        # string lookups (joinable_tables_dict[str(table)+'_'+str(column)]) below.
+        for name, group in external_joinable_tables.groupby('table_col_id'):
             keys = list(group['tokenized'])
             values = list(group['rowid'])
             item = dict(zip(keys, values))
@@ -470,7 +474,7 @@ class COCOAHandler:
         logging.info('Finished.')
 
         content = {}
-        for name, group in content_result.groupby(['table_col_id']):
+        for name, group in content_result.groupby('table_col_id'):  # see comment above re: scalar vs. tuple keys
             content[name] = list(group['tokenized'])
 
         # Materialize join
