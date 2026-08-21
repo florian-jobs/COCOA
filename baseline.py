@@ -6,6 +6,7 @@ anything about its internals.
 """
 
 import polars as pl
+import sys
 import warnings
 import json
 from importlib import resources
@@ -14,6 +15,17 @@ from pathlib import Path
 from beluga.config.schema import Config
 from beluga.online.base_table import read_base_table
 from beluga.resources.utils import POLARS_NUMERIC_TYPES
+
+# Needed when this module is imported dotted, e.g.
+# `from evaluation.baselines.cocoa.baseline import COCOABaseline` (as
+# scripts/augment_and_test.py does): without this, `from src import
+# build_index` below resolves `src` to the repo root's own src/ (on
+# PYTHONPATH for beluga), which has no build_index - not this directory's
+# src/. Standalone usage (`import baseline` with cwd here) isn't affected,
+# since this directory would already be on sys.path in that case.
+_COCOA_DIR = str(Path(__file__).resolve().parent)
+if _COCOA_DIR not in sys.path:
+    sys.path.insert(0, _COCOA_DIR)
 
 from src import build_index
 from interface import run_cocoa_experiment
