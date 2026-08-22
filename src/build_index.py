@@ -249,12 +249,15 @@ def main(argv=None):
                         help="Directory containing the table corpora. Defaults to dataset/.")
     parser.add_argument("--limit", required=False, type=_non_negative_int,
                         help="limit the number of csv's to process for testing purposes")
+    parser.add_argument("--db-path", required=False,
+                        help="Override the db path from cocoa_duckdb_config.json (e.g. to build a "
+                             "separate index per corpus - see baseline.py, which relies on this).")
     args = parser.parse_args(argv)
 
     with open(_PROJECT_ROOT / "config" / "cocoa_duckdb_config.json", "r", encoding="utf-8") as f:
         config = json.load(f)
 
-    db_path = _PROJECT_ROOT / config["connection"]["real"]["database"]
+    db_path = Path(args.db_path) if args.db_path else _PROJECT_ROOT / config["connection"]["real"]["database"]
     tables = config["tables"]
 
     os.makedirs(db_path.parent, exist_ok=True)

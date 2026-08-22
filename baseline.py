@@ -98,14 +98,23 @@ class COCOABaseline:
 
 
         # Offline phase: (re)build the DuckDB index if it's missing or a rebuild was requested.
+        # db_path is made corpus-specific here (cocoa_duckdb_config.json's own path is a single fixed
+        # file, with no notion of corpus): scripts/augment_and_test.py's sweep runs multiple corpora
+        # against the same COCOABaseline/build_index.is_build_complete() logic, so a single shared
+        # db_path would mean the second corpus in the sweep silently reuses the first corpus's index
+        # (is_build_complete() would already be True) instead of rebuilding for its own tables.
         with open(_DB_CONFIG, "r", encoding="utf-8") as f:
-            db_path = _PROJECT_ROOT / json.load(f)["connection"][_DB_PROFILE]["database"]
+            db_config_dict = json.load(f)
+        original_database = Path(db_config_dict["connection"][_DB_PROFILE]["database"])
+        corpus_database = original_database.with_name(f"{original_database.stem}_{config.corpus}{original_database.suffix}")
+        db_config_dict["connection"][_DB_PROFILE]["database"] = str(corpus_database)
+        db_path = _PROJECT_ROOT / corpus_database
 
         # is_build_complete(), not db_path.exists(): db_path is created (and
         # partially populated) as soon as a build starts, so existence alone
         # can't tell an in-progress or crashed build apart from a finished one.
         if self.rebuild_index or not build_index.is_build_complete(db_path):
-            build_index.main(argv=["--corpora", str(corpus_dir)])
+            build_index.main(argv=["--corpora", str(corpus_dir), "--db-path", str(db_path)])
 
         data = base_table_df.to_pandas()
 
@@ -117,7 +126,7 @@ class COCOABaseline:
                 k_t=self.k_t,
                 query_column=join_column,
                 target_column=target_column,
-                db_config=_DB_CONFIG,
+                db_config=db_config_dict,
                 db_profile=_DB_PROFILE,
                 leaky_features=leaky_features,
             )
