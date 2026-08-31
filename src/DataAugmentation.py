@@ -222,6 +222,10 @@ class COCOAHandler:
         if not overlap_columns:
             logging.info('No joinable columns found.')
             logging.info('=== Finished cocoa ===')
+            # dataset holds the string-lowercased copy used for matching/ranking above (line 194) -
+            # restore the original dtypes (numeric target/features) for the returned result.
+            for col in data.columns:
+                dataset[col] = data[col]
             return dataset     # no external content added
 
         # Extract table and column ids from each
@@ -487,6 +491,11 @@ class COCOAHandler:
                     joint_tokens[join_map[i]] = str(tokens[i])
 
             dataset[name] = joint_tokens
+
+        # dataset holds the string-lowercased copy used for matching/ranking above (line 194) -
+        # restore the original dtypes (numeric target/features) for the returned result.
+        for col in data.columns:
+            dataset[col] = data[col]
 
         return dataset
 
