@@ -81,7 +81,19 @@ def run_cocoa_experiment(
 
     owns_conn = conn is None
     if owns_conn:
-        conn = duckdb.connect(_resolve_database_path(config["connection"][db_profile]["database"]))
+        # Without an explicit memory_limit, DuckDB has no ceiling of its own and just keeps growing
+        # until the OS OOM-killer SIGKILLs the process (seen on base tables with a large number of
+        # distinct join values, e.g. nyc_street_trees at ~517k rows, where the overlap query's
+        # `WHERE tokenized IN (...)` scans/aggregates the full corpus-wide distinct_tokens table).
+        # Capping it makes DuckDB spill intermediate results to temp_directory instead of crashing.
+        db_path = Path(_resolve_database_path(config["connection"][db_profile]["database"]))
+        conn = duckdb.connect(
+            str(db_path),
+            config={
+                "memory_limit": "200GB",
+                "temp_directory": str(db_path.with_name(db_path.stem + "_spill")),
+            },
+        )
 
     try:
         handler = COCOAHandler(conn, tables)
