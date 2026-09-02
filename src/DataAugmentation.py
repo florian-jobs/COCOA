@@ -138,7 +138,7 @@ class COCOAHandler:
         except KeyError:
             raise ValueError('cocoa: Invalid constructor input for parameter db_tables.')
 
-    def enrich(self, data, k_c, k_t, query_column='query', target_column='target', rank_method='min', leaky_features=None):
+    def enrich(self, data, k_c, k_t, query_column='query', target_column='target', rank_method='min', leaky_features=None, base_table_name=None):
         """
 
         :param data: Input dataset, contains query and target columns.
@@ -153,6 +153,14 @@ class COCOAHandler:
                                 in that table (same format as arda/qcr's leaky_features.json). Those
                                 columns are excluded from correlation ranking, not just dropped after
                                 the fact, so they can't consume a slot in the top k_c result either.
+        :param base_table_name: Optional name of the query/base table itself. Real corpora can contain
+                                a second, independent copy of the same dataset under its own table_id
+                                (seen with both COCOA and AutoFeat: nyc_street_trees and imdb_movies
+                                each had a corpus entry sharing their own name) - joining against that
+                                copy is a self-join in disguise, not a genuine external feature, and
+                                the values line up almost perfectly with the target for the wrong
+                                reason. Any candidate table whose table_name matches this is excluded
+                                from ranking entirely, the same way leaky columns are.
         :return: Given dataframe with joint external data
         """
         if rank_method not in ('min', 'average'):
@@ -236,19 +244,24 @@ class COCOAHandler:
             column_ids.append(int(o.split('_')[1]))
         joint_overlap_columns = '\',\''.join(overlap_columns)
 
-        # Resolve which (tableid, column) pairs are leaky, via the table_name each
-        # tableid was assigned at build time - leaky_features is keyed by table name
-        # (matching leaky_features.json / arda's node_id), not by our internal tableid.
+        # Resolve which (tableid, column) pairs are leaky, and which tableids are actually the base
+        # table itself under another entry (self-join), via the table_name each tableid was assigned
+        # at build time - leaky_features is keyed by table name (matching leaky_features.json /
+        # arda's node_id), not by our internal tableid, and self_join_table_ids the same way.
         leaky_by_tableid = {}
-        if leaky_features:
-            joint_leaky_table_ids = '\',\''.join(str(i) for i in set(table_ids))
+        self_join_table_ids = set()
+        if leaky_features or base_table_name:
+            joint_candidate_table_ids = '\',\''.join(str(i) for i in set(table_ids))
             name_query = f'SELECT tableid, table_name ' \
                          f'FROM {self.tn_table} ' \
-                         f'WHERE tableid IN (\'{joint_leaky_table_ids}\');'
+                         f'WHERE tableid IN (\'{joint_candidate_table_ids}\');'
             for _, row in pd.read_sql(name_query, self.conn).iterrows():
-                leaky_columns = leaky_features.get(row['table_name'])
-                if leaky_columns:
-                    leaky_by_tableid[int(row['tableid'])] = set(leaky_columns)
+                if leaky_features:
+                    leaky_columns = leaky_features.get(row['table_name'])
+                    if leaky_columns:
+                        leaky_by_tableid[int(row['tableid'])] = set(leaky_columns)
+                if base_table_name and row['table_name'] == base_table_name:
+                    self_join_table_ids.add(int(row['tableid']))
 
         logging.info('Fetching content of joinable columns...')
 
@@ -321,6 +334,8 @@ class COCOAHandler:
         for i in np.arange(len(table_ids)):
             column = column_ids[i]
             table = table_ids[i]
+            if table in self_join_table_ids:
+                continue
             max_col = max_column_dict[table]
 
             joinMap = generate_join_map(dataset[query_column], joinable_tables_dict[str(table) + '_' + str(column)])

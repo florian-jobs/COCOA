@@ -56,6 +56,7 @@ def run_cocoa_experiment(
         db_profile: str = "demo",
         conn: duckdb.DuckDBPyConnection | None = None,
         leaky_features: dict[str, list[int]] | None = None,
+        base_table_name: str | None = None,
 ) -> COCOAResult:
     """
     Enriches `data` with the top k_c external columns (out of k_t overlap
@@ -72,6 +73,8 @@ def run_cocoa_experiment(
     :param conn: Reuse an existing DuckDB connection instead of opening (and later closing) a new one.
     :param leaky_features: Optional dict mapping candidate table name -> list of leaky column ids to
         exclude from ranking (same format as arda/qcr's leaky_features.json).
+    :param base_table_name: Optional name of the query/base table itself, excluded from ranking if
+        the corpus also contains a table by that same name (a self-join in disguise).
     """
     if k_c < 0 or k_t < 0:
         raise ValueError(f"k_c and k_t must be >= 0, got k_c={k_c}, k_t={k_t}")
@@ -104,6 +107,7 @@ def run_cocoa_experiment(
             query_column=query_column,
             target_column=target_column,
             leaky_features=leaky_features,
+            base_table_name=base_table_name,
         )
 
         return COCOAResult(

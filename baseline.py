@@ -129,6 +129,7 @@ class COCOABaseline:
                 db_config=db_config_dict,
                 db_profile=_DB_PROFILE,
                 leaky_features=leaky_features,
+                base_table_name=config.base_table,
             )
 
         return pl.from_pandas(augmented_table.data)
