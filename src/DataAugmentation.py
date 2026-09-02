@@ -153,14 +153,9 @@ class COCOAHandler:
                                 in that table (same format as arda/qcr's leaky_features.json). Those
                                 columns are excluded from correlation ranking, not just dropped after
                                 the fact, so they can't consume a slot in the top k_c result either.
-        :param base_table_name: Optional name of the query/base table itself. Real corpora can contain
-                                a second, independent copy of the same dataset under its own table_id
-                                (seen with both COCOA and AutoFeat: nyc_street_trees and imdb_movies
-                                each had a corpus entry sharing their own name) - joining against that
-                                copy is a self-join in disguise, not a genuine external feature, and
-                                the values line up almost perfectly with the target for the wrong
-                                reason. Any candidate table whose table_name matches this is excluded
-                                from ranking entirely, the same way leaky columns are.
+        :param base_table_name: Optional name of the query/base table itself. Corpora can contain a
+                                second copy of the same dataset under its own table_id; any candidate
+                                whose table_name matches this is excluded from ranking (self-join guard).
         :return: Given dataframe with joint external data
         """
         if rank_method not in ('min', 'average'):
@@ -244,10 +239,8 @@ class COCOAHandler:
             column_ids.append(int(o.split('_')[1]))
         joint_overlap_columns = '\',\''.join(overlap_columns)
 
-        # Resolve which (tableid, column) pairs are leaky, and which tableids are actually the base
-        # table itself under another entry (self-join), via the table_name each tableid was assigned
-        # at build time - leaky_features is keyed by table name (matching leaky_features.json /
-        # arda's node_id), not by our internal tableid, and self_join_table_ids the same way.
+        # Resolve leaky (tableid, column) pairs and self-join tableids via each tableid's table_name
+        # (leaky_features/base_table_name are keyed by name, not our internal tableid).
         leaky_by_tableid = {}
         self_join_table_ids = set()
         if leaky_features or base_table_name:
