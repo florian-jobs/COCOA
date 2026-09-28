@@ -260,10 +260,9 @@ class COCOAHandler:
 
         # Filter out self-join tables, then trim back down to k_t (overlap_columns is already
         # sorted by overlap count, so this keeps the best k_t genuinely-external candidates).
-        if self_join_table_ids:
-            kept = [i for i, t in enumerate(table_ids) if t not in self_join_table_ids]
-            table_ids = [table_ids[i] for i in kept][:k_t]
-            column_ids = [column_ids[i] for i in kept][:k_t]
+        kept = [i for i, t in enumerate(table_ids) if t not in self_join_table_ids]
+        table_ids = [table_ids[i] for i in kept][:k_t]
+        column_ids = [column_ids[i] for i in kept][:k_t]
 
         logging.info('Fetching content of joinable columns...')
 
