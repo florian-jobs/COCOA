@@ -208,6 +208,7 @@ class COCOAHandler:
         distinct_clean_values = dataset[query_column].unique()
         joint_distinct_values = '\',\''.join(distinct_clean_values)
 
+        # Obtain top k_t columns sorted by overlap count
         overlap_query = f'SELECT ol.table_col_id, number_of_tokens ' \
                         f'FROM (' \
                         f'    SELECT table_col_id, COUNT(tokenized) as number_of_tokens ' \
@@ -217,7 +218,8 @@ class COCOAHandler:
                         f'    HAVING COUNT(tokenized) > 3' \
                         f') as ol ' \
                         f'ORDER BY number_of_tokens DESC ' \
-                        f'LIMIT {k_t};'
+                        f'LIMIT {k_t + 20};'  # self-join tables get excluded below. without this they would consume
+        # one of k_t candidates slots.
 
         overlap_columns = list(pd.read_sql(overlap_query, self.conn)['table_col_id'])
         logging.info('Finished.')
@@ -255,6 +257,13 @@ class COCOAHandler:
                         leaky_by_tableid[int(row['tableid'])] = set(leaky_columns)
                 if base_table_name and row['table_name'] == base_table_name:
                     self_join_table_ids.add(int(row['tableid']))
+
+        # Filter out self-join tables, then trim back down to k_t (overlap_columns is already
+        # sorted by overlap count, so this keeps the best k_t genuinely-external candidates).
+        if self_join_table_ids:
+            kept = [i for i, t in enumerate(table_ids) if t not in self_join_table_ids]
+            table_ids = [table_ids[i] for i in kept][:k_t]
+            column_ids = [column_ids[i] for i in kept][:k_t]
 
         logging.info('Fetching content of joinable columns...')
 
@@ -336,7 +345,7 @@ class COCOAHandler:
             for c in np.arange(max_col + 1):
                 if c == column:
                     continue
-                if c in leaky_by_tableid.get(table, ()):
+                if c in leaky_by_tableid.get(table, ()): # skip leakay column
                     continue
 
                 t_c_key = f'{table}_{c}'
