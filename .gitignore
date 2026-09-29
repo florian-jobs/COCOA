@@ -19,7 +19,7 @@ results/
 *.db
 *.duckdb
 
-# Generated DuckDB databases (built by src/build_index.py - always safe to
+# Generated DuckDB databases (built by src/build_cocoa_index.py - always safe to
 # delete and rebuild)
 db/
 

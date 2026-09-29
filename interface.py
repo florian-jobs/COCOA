@@ -1,8 +1,8 @@
 """
 Online-phase entry point: runs cocoa (DataAugmentation.COCOAHandler.enrich)
-against an already-built index (see src/build_index.py for the offline
+against an already-built index (see beluga's scripts/build_cocoa_index.py for the offline
 phase). Exposes both a Python function, run_cocoa_experiment(), and a CLI
-wrapper around it, for use outside of the beluga baseline (baseline.py).
+wrapper around it, for use outside of the beluga baseline (cocoa_baseline.py).
 """
 
 from __future__ import annotations
