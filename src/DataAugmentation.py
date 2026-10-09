@@ -198,7 +198,9 @@ class COCOAHandler:
         dataset[query_column] = dataset[query_column].apply(get_cleaned_text)
 
         # Target preparation
-        dataset['rank_target'] = generate_rank(dataset[target_column])
+        # rank the original (numeric) target, not dataset's string-lowercased copy of it - ranking the
+        # strings orders values lexicographically ('10.0' < '4.2'), not numerically.
+        dataset['rank_target'] = generate_rank(pd.to_numeric(data[target_column], errors='coerce'))
         target_ranks = np.array(dataset['rank_target'])
         std_target_rank = np.std(target_ranks)
         target_rank_sum = sum(target_ranks)
@@ -499,6 +501,7 @@ class COCOAHandler:
 
         # Materialize join
         for cor, name in sorted_list[:min(k_c, len(sorted_list))]:
+            print(f"[COCOA] selected {name} cor={cor:.4f}", flush=True)
             tokens = content[str(name)]
             join_map = join_maps[str(name)]
             joint_tokens = ['' for _ in range(len(dataset[query_column]))]
