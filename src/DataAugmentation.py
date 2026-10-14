@@ -85,11 +85,8 @@ def create_index(values):
             if values[i] is None:
                 values[i] = ''
         values = [str(i) for i in values]
-    # Deliberate deviation from the original (which calls .rank() with defaults,
-    # i.e. na_option='keep'): with NaN ranks kept, the original's two sort steps
-    # disagree on NaN order (Python's sorted() vs. np.sort()), desyncing
-    # rows_sorted_based_on_ranks from sorted_ranks for columns with multiple NaNs.
-    # na_option='bottom' gives NaNs a concrete rank so both sorts agree.
+    # changed from original: with NaN ranks sorted() and np.sort() order NaNs differently,
+    # so put NaNs at the bottom
     ranks = list(pd.Series(values).rank(na_option='bottom', method='average'))
 
     rows_sorted_based_on_ranks = [x for _, x in sorted(zip(ranks, rows))]
@@ -198,8 +195,7 @@ class COCOAHandler:
         dataset[query_column] = dataset[query_column].apply(get_cleaned_text)
 
         # Target preparation
-        # rank the original (numeric) target, not dataset's string-lowercased copy of it - ranking the
-        # strings orders values lexicographically ('10.0' < '4.2'), not numerically.
+        # use numeric target, ranking the strings would give '10.0' < '4.2'
         dataset['rank_target'] = generate_rank(pd.to_numeric(data[target_column], errors='coerce'))
         target_ranks = np.array(dataset['rank_target'])
         std_target_rank = np.std(target_ranks)
@@ -220,8 +216,7 @@ class COCOAHandler:
                         f'    HAVING COUNT(tokenized) > 3' \
                         f') as ol ' \
                         f'ORDER BY number_of_tokens DESC ' \
-                        f'LIMIT {k_t + 20};'  # self-join tables get excluded below. without this they would consume
-        # one of k_t candidates slots.
+                        f'LIMIT {k_t + 20};'  # extra rows since self-join tables are removed below
 
         overlap_columns = list(pd.read_sql(overlap_query, self.conn)['table_col_id'])
         logging.info('Finished.')
@@ -229,8 +224,7 @@ class COCOAHandler:
         if not overlap_columns:
             logging.info('No joinable columns found.')
             logging.info('=== Finished cocoa ===')
-            # dataset holds the string-lowercased copy used for matching/ranking above (line 194) -
-            # restore the original dtypes (numeric target/features) for the returned result.
+            # restore original dtypes
             for col in data.columns:
                 dataset[col] = data[col]
             return dataset     # no external content added
@@ -243,8 +237,7 @@ class COCOAHandler:
             column_ids.append(int(o.split('_')[1]))
         joint_overlap_columns = '\',\''.join(overlap_columns)
 
-        # Resolve leaky (tableid, column) pairs and self-join tableids via each tableid's table_name
-        # (leaky_features/base_table_name are keyed by name, not our internal tableid).
+        # leaky_features and base_table_name use table names, map them to tableids
         leaky_by_tableid = {}
         self_join_table_ids = set()
         if leaky_features or base_table_name:
@@ -260,8 +253,7 @@ class COCOAHandler:
                 if base_table_name and row['table_name'] == base_table_name:
                     self_join_table_ids.add(int(row['tableid']))
 
-        # Filter out self-join tables, then trim back down to k_t (overlap_columns is already
-        # sorted by overlap count, so this keeps the best k_t genuinely-external candidates).
+        # drop self-join tables and keep top k_t
         kept = [i for i, t in enumerate(table_ids) if t not in self_join_table_ids]
         table_ids = [table_ids[i] for i in kept][:k_t]
         column_ids = [column_ids[i] for i in kept][:k_t]
@@ -276,10 +268,7 @@ class COCOAHandler:
         external_joinable_tables = pd.read_sql(token_query, self.conn)
         joinable_tables_dict = {}   # store content of tables containing at least one column that is joinable with query
 
-        # Group by the column name itself, not [column name]: in pandas >= 2.0,
-        # grouping by a length-1 list-like yields tuple keys (e.g. ('2_0',))
-        # instead of scalar keys, which desyncs this dict's keys from the plain
-        # string lookups (joinable_tables_dict[str(table)+'_'+str(column)]) below.
+        # group by the name, not [name], otherwise pandas >= 2.0 gives tuple keys
         for name, group in external_joinable_tables.groupby('table_col_id'):
             keys = list(group['tokenized'])
             values = list(group['rowid'])
@@ -496,7 +485,7 @@ class COCOAHandler:
         logging.info('Finished.')
 
         content = {}
-        for name, group in content_result.groupby('table_col_id'):  # see comment above re: scalar vs. tuple keys
+        for name, group in content_result.groupby('table_col_id'):
             content[name] = list(group['tokenized'])
 
         # Materialize join
@@ -511,8 +500,7 @@ class COCOAHandler:
 
             dataset[name] = joint_tokens
 
-        # dataset holds the string-lowercased copy used for matching/ranking above (line 194) -
-        # restore the original dtypes (numeric target/features) for the returned result.
+        # restore original dtypes
         for col in data.columns:
             dataset[col] = data[col]
 
